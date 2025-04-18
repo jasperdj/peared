@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Peared Chat (Inline)</title>
+  <style>
+    body { font-family: sans-serif; padding:1em; }
+    textarea { width:100%; box-sizing:border-box; margin:0.5em 0; }
+    #chat { display:none; margin-top:1em; }
+    #log { border:1px solid #ccc; height:200px; overflow-y:auto; padding:0.5em; }
+  </style>
+</head>
+<body>
+  <h1>Peared Chat Demo</h1>
+  <!-- Show this to peer -->
+  <label>Show this to peer (scan or copy):</label>
+  <textarea id="qrOut" rows="4" readonly></textarea>
+  <!-- Paste peer's payload -->
+  <label>Paste peer payload here:</label>
+  <textarea id="qrIn" rows="4"></textarea>
+  <button id="connect">Connect</button>
+
+  <div id="chat">
+    <div id="log"></div>
+    <input id="in" placeholder="Type message..."><button id="send">Send</button>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <script>
+  // --- Helpers ---
+  function buf2b64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+  function b642buf(b64) { return Uint8Array.from(atob(b64), c => c.charCodeAt(0)); }
+  function randomHex(bytes = 8) {
+    const arr = crypto.getRandomValues(new Uint8Array(bytes));
+    return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
+  }
+
+  // --- Local ID & Key ---
+  const peerID = randomHex(16);
+  const masterKey = buf2b64(crypto.getRandomValues(new Uint8Array(32)));
+
+  // Generate RTC offer immediately for handshake QR
+  const pc_init = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  pc_init.createDataChannel('init');
+  (async () => {
+    const offerDesc = await pc_init.createOffer();
+    await pc_init.setLocalDescription(offerDesc);
+    // Populate handshake JSON immediately
+    const handshake = { peerID, masterKey, offer: offerDesc };
+    document.getElementById('qrOut').value = JSON.stringify(handshake);
+  })();
+
+  // --- Peared Connect Function ---
+  async function pearedConnect({ peerID, theirID, masterKey, offer, inventoryUrl }) {
+    const key = await crypto.subtle.importKey('raw', b642buf(masterKey), 'AES-GCM', false, ['encrypt','decrypt']);
+    firebase.initializeApp({ databaseURL: inventoryUrl });
+    const db = firebase.database();
+    const pathMe = `inv/${peerID}`;
+    const pathThem = `inv/${theirID}`;
+
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    let dc, pending = [];
+    const handlers = { message: [] };
+
+    async function enc(obj) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+      return { iv: buf2b64(iv), data: buf2b64(ct) };
+    }
+    async function dec(rec) {
+      const iv = b642buf(rec.iv);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, b642buf(rec.data));
+      return JSON.parse(new TextDecoder().decode(pt));
+    }
+    function push(record) { db.ref(pathThem).push(record); }
+
+    // Push initial offer
+    if (offer) {
+      push(await enc({ type: 'offer', sdp: offer }));
+    }
+
+    pc.onicecandidate = async e => { if (e.candidate) push(await enc({ type: 'candidate', c: e.candidate })); };
+
+    const amOffer = Boolean(offer);
+    if (amOffer) {
+      dc = pc.createDataChannel('data');
+      setupDC();
+    } else {
+      pc.ondatachannel = e => { dc = e.channel; setupDC(); };
+    }
+
+    function setupDC() {
+      dc.onopen = () => {
+        document.getElementById('chat').style.display = 'block';
+        pending.forEach(m => dc.send(JSON.stringify(m)));
+        pending = [];
+      };
+      dc.onmessage = e => handlers.message.forEach(fn => fn(JSON.parse(e.data)));
+    }
+
+    db.ref(pathMe).on('child_added', async snap => {
+      const msg = await dec(snap.val());
+      if (msg.type === 'offer') {
+        await pc.setRemoteDescription(msg.sdp);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        push(await enc({ type: 'answer', sdp: answer }));
+      } else if (msg.type === 'answer') {
+        await pc.setRemoteDescription(msg.sdp);
+      } else if (msg.type === 'candidate') {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.c));
+      }
+    });
+
+    return {
+      send(data) { if (dc && dc.readyState === 'open') dc.send(JSON.stringify(data)); else pending.push(data); },
+      on(fn) { handlers.message.push(fn); }
+    };
+  }
+
+  // --- UI Bindings ---
+  document.getElementById('connect').onclick = async () => {
+    const inp = document.getElementById('qrIn').value;
+    if (!inp) return alert('Paste peer payload first');
+    let payload;
+    try { payload = JSON.parse(inp); } catch { return alert('Invalid JSON'); }
+    const theirID = payload.peerID;
+    const theirMaster = payload.masterKey;
+    const effectiveMaster = masterKey > theirMaster ? masterKey : theirMaster;
+    const conn = await pearedConnect({ peerID, theirID, masterKey: effectiveMaster, offer: payload.offer, inventoryUrl: 'https://peared-1e0a5-default-rtdb.firebaseio.com' });
+    conn.on(msg => { const div = document.createElement('div'); div.textContent = 'Peer: ' + JSON.stringify(msg); document.getElementById('log').append(div); });
+    document.getElementById('send').onclick = () => { const txt = document.getElementById('in').value; conn.send({ text: txt }); const div = document.createElement('div'); div.textContent = 'Me: ' + txt; document.getElementById('log').append(div); };
+  };
+  </script>
+</body>
+</html>
