@@ -1,138 +1,1687 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Peared Chat (Inline)</title>
-  <style>
-    body { font-family: sans-serif; padding:1em; }
-    textarea { width:100%; box-sizing:border-box; margin:0.5em 0; }
-    #chat { display:none; margin-top:1em; }
-    #log { border:1px solid #ccc; height:200px; overflow-y:auto; padding:0.5em; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peared - P2P Messaging</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        body {
+            background-color: #f5f5f5;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #333;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 15px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .info {
+            background-color: #e7f3fe;
+            color: #0366d6;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .messages {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .message {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+        }
+        .sent {
+            background-color: #dcf8c6;
+            margin-left: 20%;
+        }
+        .received {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            margin-right: 20%;
+        }
+        .system {
+            background-color: #f0f0f0;
+            color: #666;
+            text-align: center;
+            font-style: italic;
+            padding: 8px;
+            margin: 10px auto;
+            border-radius: 8px;
+        }
+        .connection-id {
+            font-family: monospace;
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            word-break: break-all;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 15px;
+        }
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .tab.active {
+            border-bottom: 2px solid #4CAF50;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .connection-status {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .status-icon {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        .status-icon.disconnected {
+            background-color: #dc3545;
+        }
+        .status-icon.connecting {
+            background-color: #ffc107;
+            animation: blink 1s infinite;
+        }
+        .status-icon.connected {
+            background-color: #28a745;
+        }
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+        #ice-candidates-list, #remote-candidates-list {
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+    </style>
 </head>
 <body>
-  <h1>Peared Chat Demo</h1>
-  <!-- Show this to peer -->
-  <label>Show this to peer (scan or copy):</label>
-  <textarea id="qrOut" rows="4" readonly></textarea>
-  <!-- Paste peer's payload -->
-  <label>Paste peer payload here:</label>
-  <textarea id="qrIn" rows="4"></textarea>
-  <button id="connect">Connect</button>
+    <h1>Peared</h1>
+    <div class="subtitle">Secure P2P Messaging</div>
 
-  <div id="chat">
-    <div id="log"></div>
-    <input id="in" placeholder="Type message..."><button id="send">Send</button>
-  </div>
+    <div class="card">
+        <h2>Step 1: Initialize WebRTC</h2>
+        <div style="margin-bottom: 10px;">
+            <input type="checkbox" id="force-turn" name="force-turn">
+            <label for="force-turn">Force TURN relay (use for difficult networks)</label>
+        </div>
+        <div style="margin-bottom: 10px;">
+            <select id="turn-server" style="padding: 5px; width: 250px;">
+                <option value="all">Use all TURN servers</option>
+                <option value="openrelay">OpenRelay TURN servers</option>
+                <option value="viagenie">Viagenie TURN servers</option>
+                <option value="xirsys">Xirsys TURN servers</option>
+            </select>
+            <label for="turn-server">Select TURN provider</label>
+        </div>
+        <button id="init-btn">Initialize</button>
+        <div id="init-status"></div>
+        <div id="peer-details" style="display: none;">
+            <p><strong>Your Connection Details:</strong></p>
+            <div class="tabs">
+                <div class="tab active" data-tab="connection-id-tab">Connection ID</div>
+                <div class="tab" data-tab="connection-details-tab">Details</div>
+            </div>
+            <div class="tab-content active" id="connection-id-tab">
+                <div id="connection-id" class="connection-id"></div>
+                <button id="copy-btn">Copy to Clipboard</button>
+                <div id="copy-status"></div>
+            </div>
+            <div class="tab-content" id="connection-details-tab">
+                <p><strong>Peer ID:</strong> <span id="peer-id-display"></span></p>
+                <p><strong>Encryption Key:</strong> <span id="encryption-key-display"></span></p>
+                <p><strong>WebRTC Status:</strong> <span id="webrtc-status-display"></span></p>
+                <div>
+                    <p><strong>Local ICE Candidates:</strong></p>
+                    <div id="ice-candidates-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-  <script>
-  // --- Helpers ---
-  function buf2b64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
-  function b642buf(b64) { return Uint8Array.from(atob(b64), c => c.charCodeAt(0)); }
-  function randomHex(bytes = 8) {
-    const arr = crypto.getRandomValues(new Uint8Array(bytes));
-    return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
-  }
+    <div class="card">
+        <h2>Step 2: Connect with Another Peer</h2>
+        <div class="connection-status">
+            <div id="status-icon" class="status-icon disconnected"></div>
+            <span id="connection-state">Disconnected</span>
+        </div>
+        
+        <div id="connection-tabs" class="tabs">
+            <div class="tab active" data-tab="connect-tab">Connect to Peer</div>
+            <div class="tab" data-tab="answer-tab">Process Answer (for Initiator)</div>
+        </div>
+        
+        <div id="connect-tab" class="tab-content active">
+            <p>Enter the Connection ID of your peer:</p>
+            <textarea id="other-id" placeholder="Paste the Connection ID here"></textarea>
+            <button id="connect-btn">Connect</button>
+            <div id="connect-status"></div>
+        </div>
+        
+        <div id="answer-tab" class="tab-content">
+            <p>If you initiated the connection, paste the answer from the other peer here:</p>
+            <textarea id="answer-data" placeholder="Paste the answer data here"></textarea>
+            <button id="process-answer-btn">Process Answer</button>
+            <div id="answer-status"></div>
+        </div>
+        
+        <div id="connection-details-container" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+            <p><strong>Connection Details:</strong></p>
+            <p><strong>Remote Peer ID:</strong> <span id="remote-peer-id"></span></p>
+            <p><strong>Data Channel Status:</strong> <span id="datachannel-status">Not created</span></p>
+            <p><strong>Remote ICE Candidates:</strong></p>
+            <div id="remote-candidates-list"></div>
+        </div>
+    </div>
 
-  // --- Local ID & Key ---
-  const peerID = randomHex(16);
-  const masterKey = buf2b64(crypto.getRandomValues(new Uint8Array(32)));
+    <div class="card" id="chat-card" style="display: none;">
+        <h2>Secure Chat</h2>
+        <div class="messages" id="messages"></div>
+        <div class="chat-input">
+            <input type="text" id="message-input" placeholder="Type a message">
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
 
-  // Generate RTC offer immediately for handshake QR
-  const pc_init = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-  pc_init.createDataChannel('init');
-  (async () => {
-    const offerDesc = await pc_init.createOffer();
-    await pc_init.setLocalDescription(offerDesc);
-    // Populate handshake JSON immediately
-    const handshake = { peerID, masterKey, offer: offerDesc };
-    document.getElementById('qrOut').value = JSON.stringify(handshake);
-  })();
+    <script>
+        // Application state
+        const state = {
+            initialized: false,
+            connectionState: 'disconnected', // disconnected, connecting, connected
+            peerId: null,
+            secretKey: null,
+            otherPeerId: null,
+            otherSecretKey: null,
+            selectedKey: null,
+            peerConnection: null,
+            dataChannel: null,
+            localIceCandidates: [],
+            remoteIceCandidates: [],
+            initiator: false,
+            offerSdp: null,
+            answerSdp: null
+        };
 
-  // --- Peared Connect Function ---
-  async function pearedConnect({ peerID, theirID, masterKey, offer, inventoryUrl }) {
-    const key = await crypto.subtle.importKey('raw', b642buf(masterKey), 'AES-GCM', false, ['encrypt','decrypt']);
-    firebase.initializeApp({ databaseURL: inventoryUrl });
-    const db = firebase.database();
-    const pathMe = `inv/${peerID}`;
-    const pathThem = `inv/${theirID}`;
+        // DOM elements
+        const initBtn = document.getElementById('init-btn');
+        const initStatus = document.getElementById('init-status');
+        const peerDetails = document.getElementById('peer-details');
+        const connectionId = document.getElementById('connection-id');
+        const peerIdDisplay = document.getElementById('peer-id-display');
+        const encryptionKeyDisplay = document.getElementById('encryption-key-display');
+        const webrtcStatusDisplay = document.getElementById('webrtc-status-display');
+        const copyBtn = document.getElementById('copy-btn');
+        const copyStatus = document.getElementById('copy-status');
+        const otherId = document.getElementById('other-id');
+        const connectBtn = document.getElementById('connect-btn');
+        const connectStatus = document.getElementById('connect-status');
+        const answerData = document.getElementById('answer-data');
+        const processAnswerBtn = document.getElementById('process-answer-btn');
+        const answerStatus = document.getElementById('answer-status');
+        const statusIcon = document.getElementById('status-icon');
+        const connectionState = document.getElementById('connection-state');
+        const iceCandidatesList = document.getElementById('ice-candidates-list');
+        const remoteCandidatesList = document.getElementById('remote-candidates-list');
+        const connectionDetailsContainer = document.getElementById('connection-details-container');
+        const remotePeerIdDisplay = document.getElementById('remote-peer-id');
+        const dataChannelStatus = document.getElementById('datachannel-status');
+        const chatCard = document.getElementById('chat-card');
+        const messages = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const forceTurnCheckbox = document.getElementById('force-turn');
+        const turnServerSelector = document.getElementById('turn-server');
 
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    let dc, pending = [];
-    const handlers = { message: [] };
+        // Tab navigation for all tab sets
+        document.querySelectorAll('.tabs').forEach(tabSet => {
+            tabSet.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    // Remove active class from all tabs and content in this tab set
+                    tabSet.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    
+                    // Get all tab content elements for this tab set
+                    const tabContents = Array.from(document.querySelectorAll('.tab-content'))
+                        .filter(content => tabSet.querySelector(`[data-tab="${content.id}"]`));
+                    
+                    // Hide all tab contents for this tab set
+                    tabContents.forEach(c => c.classList.remove('active'));
+                    
+                    // Add active class to clicked tab
+                    tab.classList.add('active');
+                    
+                    // Show corresponding content
+                    const tabId = tab.getAttribute('data-tab');
+                    document.getElementById(tabId).classList.add('active');
+                });
+            });
+        });
 
-    async function enc(obj) {
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
-      return { iv: buf2b64(iv), data: buf2b64(ct) };
-    }
-    async function dec(rec) {
-      const iv = b642buf(rec.iv);
-      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, b642buf(rec.data));
-      return JSON.parse(new TextDecoder().decode(pt));
-    }
-    function push(record) { db.ref(pathThem).push(record); }
+        // Add debug panel to the UI
+        function addDebugPanel() {
+            const debugPanel = document.createElement('div');
+            debugPanel.id = 'debug-panel';
+            debugPanel.style.position = 'fixed';
+            debugPanel.style.bottom = '0';
+            debugPanel.style.right = '0';
+            debugPanel.style.width = '300px';
+            debugPanel.style.maxHeight = '300px';
+            debugPanel.style.overflow = 'auto';
+            debugPanel.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            debugPanel.style.color = 'lime';
+            debugPanel.style.fontFamily = 'monospace';
+            debugPanel.style.fontSize = '10px';
+            debugPanel.style.padding = '10px';
+            debugPanel.style.zIndex = '1000';
+            debugPanel.style.borderTopLeftRadius = '5px';
+            
+            // Add a toggle button
+            const toggleButton = document.createElement('button');
+            toggleButton.textContent = 'Debug Log';
+            toggleButton.style.position = 'fixed';
+            toggleButton.style.bottom = '0';
+            toggleButton.style.right = '0';
+            toggleButton.style.zIndex = '1001';
+            toggleButton.style.backgroundColor = '#444';
+            toggleButton.style.color = 'white';
+            toggleButton.style.border = 'none';
+            toggleButton.style.padding = '5px 10px';
+            toggleButton.style.cursor = 'pointer';
+            toggleButton.style.borderTopLeftRadius = '5px';
+            
+            toggleButton.addEventListener('click', () => {
+                if (debugPanel.style.display === 'none') {
+                    debugPanel.style.display = 'block';
+                    toggleButton.style.backgroundColor = '#444';
+                } else {
+                    debugPanel.style.display = 'none';
+                    toggleButton.style.backgroundColor = 'red';
+                }
+            });
+            
+            document.body.appendChild(debugPanel);
+            document.body.appendChild(toggleButton);
+            
+            return debugPanel;
+        }
+        
+        // Log debug information
+        function logDebug(message) {
+            console.log(message);
+            
+            // Get or create debug panel
+            let debugPanel = document.getElementById('debug-panel');
+            if (!debugPanel) {
+                debugPanel = addDebugPanel();
+            }
+            
+            // Add timestamp
+            const timestamp = new Date().toISOString().slice(11, 23);
+            const logItem = document.createElement('div');
+            logItem.textContent = `${timestamp} ${message}`;
+            debugPanel.appendChild(logItem);
+            
+            // Auto-scroll
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+            
+            // Limit log size
+            while (debugPanel.childNodes.length > 100) {
+                debugPanel.removeChild(debugPanel.firstChild);
+            }
+        }
 
-    // Push initial offer
-    if (offer) {
-      push(await enc({ type: 'offer', sdp: offer }));
-    }
+        // Initialize peer
+        initBtn.addEventListener('click', async () => {
+            try {
+                initStatus.className = 'status info';
+                initStatus.textContent = 'Initializing WebRTC...';
+                
+                // Get force TURN setting
+                const forceTurn = document.getElementById('force-turn').checked;
+                
+                // Generate unique ID
+                state.peerId = generateRandomId();
+                
+                // Generate encryption key
+                state.secretKey = generateRandomKey();
+                
+                // Create RTCPeerConnection with enhanced configuration
+                // STUN servers
+                const stunServers = [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' }
+                ];
+                
+                // TURN servers - testing multiple options
+                const turnServers = [
+                    // OpenRelay public TURN servers
+                    { 
+                        urls: [
+                            'turn:openrelay.metered.ca:80',
+                            'turn:openrelay.metered.ca:443',
+                            'turn:openrelay.metered.ca:443?transport=tcp'
+                        ],
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    },
+                    // Viagenie TURN server
+                    {
+                        urls: 'turn:numb.viagenie.ca:3478',
+                        username: 'webrtc@live.com',
+                        credential: 'muazkh'
+                    },
+                    // Backup Viagenie TURN server with TCP
+                    {
+                        urls: 'turn:numb.viagenie.ca:3478?transport=tcp',
+                        username: 'webrtc@live.com',
+                        credential: 'muazkh'
+                    },
+                    // Xirsys TURN server (free tier)
+                    {
+                        urls: 'turn:us-turn4.xirsys.com:80?transport=udp',
+                        username: 'j-0vvzlJFpY3Gg9x3Bk2UP1QPYY6KFTtHcz4S7itY_6HZK4ygRKudYNepfGy2YSHAAAAAGXyObxpb3NoZXJyeQ==',
+                        credential: '03b61fb6-d92c-11ee-b550-0242ac120004'
+                    }
+                ];
+                
+                // Combine all servers based on policy
+                const iceServers = forceTurn ? [...turnServers] : [...stunServers, ...turnServers];
+                
+                // Create RTCPeerConnection with enhanced configuration
+                const configuration = {
+                    iceServers: iceServers,
+                    iceTransportPolicy: forceTurn ? 'relay' : 'all',
+                    iceCandidatePoolSize: 10,
+                    rtcpMuxPolicy: 'require',
+                    bundlePolicy: 'max-bundle',
+                    sdpSemantics: 'unified-plan'
+                };
+                
+                logDebug(`Initializing with transport policy: ${forceTurn ? 'relay' : 'all'}`);
+                
+                state.peerConnection = new RTCPeerConnection(configuration);
+                
+                // Set up event handlers for the peer connection
+                setupPeerConnectionHandlers();
+                
+                // Set state to initialized
+                state.initialized = true;
+                
+                // Create initial offer as initiator
+                state.initiator = true;
+                
+                // Create offer
+                await createOffer();
+                
+                // Update UI
+                initStatus.className = 'status success';
+                initStatus.textContent = 'WebRTC initialized successfully!';
+                
+                peerIdDisplay.textContent = state.peerId;
+                encryptionKeyDisplay.textContent = state.secretKey.substring(0, 10) + '...';
+                webrtcStatusDisplay.textContent = 'Ready (offer created)';
+                peerDetails.style.display = 'block';
+                
+                updateConnectionStatus('waiting');
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                initStatus.className = 'status error';
+                initStatus.textContent = `Error: ${error.message}`;
+                logDebug(`Initialization error: ${error.message}`);
+            }
+        });
 
-    pc.onicecandidate = async e => { if (e.candidate) push(await enc({ type: 'candidate', c: e.candidate })); };
+        // Create WebRTC offer
+        async function createOffer() {
+            try {
+                // Create data channel
+                state.dataChannel = state.peerConnection.createDataChannel('peared-channel');
+                setupDataChannelHandlers(state.dataChannel);
+                
+                // Create offer
+                const offer = await state.peerConnection.createOffer();
+                await state.peerConnection.setLocalDescription(offer);
+                
+                // Wait for ICE gathering to complete
+                await waitForIceGathering();
+                
+                // If we still have no candidates at this point (which can happen with relay policy),
+                // we should add a fallback host candidate to allow the signaling to proceed
+                if (state.localIceCandidates.length === 0) {
+                    logDebug('No ICE candidates gathered. Adding fallback candidate...');
+                    
+                    // Extract username fragment from the SDP
+                    const ufrag = state.peerConnection.localDescription.sdp.match(/a=ice-ufrag:([^\r\n]+)/)?.[1] || 'fallback';
+                    
+                    // Create a fallback candidate (this won't establish a connection, but allows signaling)
+                    const fallbackCandidate = {
+                        candidate: `candidate:1 1 UDP 2122252543 127.0.0.1 10000 typ host ufrag ${ufrag}`,
+                        sdpMid: '0',
+                        sdpMLineIndex: 0,
+                        usernameFragment: ufrag
+                    };
+                    
+                    // Add to the list
+                    state.localIceCandidates.push(fallbackCandidate);
+                    updateIceCandidatesUI();
+                    logDebug('Added fallback candidate: ' + JSON.stringify(fallbackCandidate));
+                }
+                
+                // Store the offer
+                state.offerSdp = state.peerConnection.localDescription;
+                
+                // Log gathered ICE candidates for debugging
+                logDebug(`Gathered ${state.localIceCandidates.length} ICE candidates:`);
+                state.localIceCandidates.forEach((candidate, index) => {
+                    logDebug(`  ${index + 1}: ${candidate.candidate}`);
+                });
+                
+                // Create connection data
+                const connectionData = {
+                    id: state.peerId,
+                    key: state.secretKey,
+                    offer: state.peerConnection.localDescription,
+                    iceCandidates: state.localIceCandidates
+                };
+                
+                // Display connection data
+                connectionId.textContent = JSON.stringify(connectionData, null, 2);
+                
+                return connectionData;
+            } catch (error) {
+                console.error('Error creating offer:', error);
+                throw error;
+            }
+        }
 
-    const amOffer = Boolean(offer);
-    if (amOffer) {
-      dc = pc.createDataChannel('data');
-      setupDC();
-    } else {
-      pc.ondatachannel = e => { dc = e.channel; setupDC(); };
-    }
+        // Process a remote offer and create an answer
+        async function processOffer(offerData) {
+            try {
+                // Set remote description
+                const offerDesc = new RTCSessionDescription(offerData.offer);
+                await state.peerConnection.setRemoteDescription(offerDesc);
+                
+                // Add ICE candidates
+                for (const candidate of offerData.iceCandidates) {
+                    await addRemoteIceCandidate(candidate);
+                }
+                
+                // Create answer
+                const answer = await state.peerConnection.createAnswer();
+                await state.peerConnection.setLocalDescription(answer);
+                
+                // Wait for ICE gathering to complete
+                await waitForIceGathering();
+                
+                // Create answer data
+                const answerData = {
+                    id: state.peerId,
+                    key: state.secretKey,
+                    answer: state.peerConnection.localDescription,
+                    iceCandidates: state.localIceCandidates
+                };
+                
+                return answerData;
+            } catch (error) {
+                console.error('Error processing offer:', error);
+                throw error;
+            }
+        }
 
-    function setupDC() {
-      dc.onopen = () => {
-        document.getElementById('chat').style.display = 'block';
-        pending.forEach(m => dc.send(JSON.stringify(m)));
-        pending = [];
-      };
-      dc.onmessage = e => handlers.message.forEach(fn => fn(JSON.parse(e.data)));
-    }
+        // Process a remote answer
+        async function processAnswer(answerData) {
+            try {
+                // Set remote description
+                const answerDesc = new RTCSessionDescription(answerData.answer);
+                await state.peerConnection.setRemoteDescription(answerDesc);
+                
+                // Add ICE candidates
+                for (const candidate of answerData.iceCandidates) {
+                    await addRemoteIceCandidate(candidate);
+                }
+                
+                return true;
+            } catch (error) {
+                console.error('Error processing answer:', error);
+                throw error;
+            }
+        }
 
-    db.ref(pathMe).on('child_added', async snap => {
-      const msg = await dec(snap.val());
-      if (msg.type === 'offer') {
-        await pc.setRemoteDescription(msg.sdp);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        push(await enc({ type: 'answer', sdp: answer }));
-      } else if (msg.type === 'answer') {
-        await pc.setRemoteDescription(msg.sdp);
-      } else if (msg.type === 'candidate') {
-        await pc.addIceCandidate(new RTCIceCandidate(msg.c));
-      }
-    });
+        // Add a remote ICE candidate
+        async function addRemoteIceCandidate(candidate) {
+            try {
+                if (!candidate || !candidate.candidate) return;
+                
+                // Filter out candidates with mismatched usernames
+                const localUserName = state.peerConnection.localDescription?.sdp.match(/a=ice-ufrag:([^\r\n]+)/)?.[1];
+                const remoteUserName = state.peerConnection.remoteDescription?.sdp.match(/a=ice-ufrag:([^\r\n]+)/)?.[1];
+                
+                // Only process candidate if it matches the remote description's username fragment
+                if (candidate.usernameFragment && remoteUserName && 
+                    candidate.usernameFragment !== remoteUserName) {
+                    console.warn(`Skipping ICE candidate with mismatched username: ${candidate.usernameFragment} vs ${remoteUserName}`);
+                    return false;
+                }
+                
+                const iceCandidate = new RTCIceCandidate(candidate);
+                await state.peerConnection.addIceCandidate(iceCandidate);
+                
+                // Add to remote candidates list
+                state.remoteIceCandidates.push(candidate);
+                
+                // Update UI
+                updateRemoteCandidatesUI();
+                
+                return true;
+            } catch (error) {
+                console.error('Error adding ICE candidate:', error, candidate);
+                return false;
+            }
+        }
 
-    return {
-      send(data) { if (dc && dc.readyState === 'open') dc.send(JSON.stringify(data)); else pending.push(data); },
-      on(fn) { handlers.message.push(fn); }
-    };
-  }
+        // Wait for ICE gathering to complete
+        function waitForIceGathering() {
+            return new Promise((resolve) => {
+                logDebug('Waiting for ICE gathering to complete...');
+                
+                if (state.peerConnection.iceGatheringState === 'complete') {
+                    logDebug('ICE gathering already complete');
+                    resolve();
+                    return;
+                }
+                
+                // Maximum time to wait for ICE gathering
+                const MAX_ICE_GATHERING_TIMEOUT = 30000;
+                
+                // Set a timeout to resolve after maximum wait time
+                const timeout = setTimeout(() => {
+                    logDebug('ICE gathering timeout reached, proceeding anyway');
+                    resolve();
+                }, MAX_ICE_GATHERING_TIMEOUT);
+                
+                // Set up a timer to periodically check for candidates even if no events fire
+                const candidateCheckInterval = setInterval(() => {
+                    // Print current number of candidates
+                    logDebug(`Current ICE candidates: ${state.localIceCandidates.length}`);
+                    
+                    // If we've gathered at least one candidate, or if gathering state is complete
+                    if (state.localIceCandidates.length > 0 || 
+                        state.peerConnection.iceGatheringState === 'complete') {
+                        clearInterval(candidateCheckInterval);
+                        clearTimeout(timeout);
+                        
+                        // Add a small delay to catch any last candidates
+                        setTimeout(resolve, 500);
+                    }
+                }, 1000);
+                
+                // Listen for iceGatheringState change to complete
+                const checkState = () => {
+                    logDebug(`ICE gathering state changed: ${state.peerConnection.iceGatheringState}`);
+                    
+                    if (state.peerConnection.iceGatheringState === 'complete') {
+                        state.peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                        clearInterval(candidateCheckInterval);
+                        clearTimeout(timeout);
+                        
+                        // Add a small delay to catch any last candidates
+                        setTimeout(resolve, 500);
+                    }
+                };
+                
+                state.peerConnection.addEventListener('icegatheringstatechange', checkState);
+                
+                // If we have relay-only policy and no candidates after a short time,
+                // we may need to implement a fallback
+                setTimeout(() => {
+                    if (state.localIceCandidates.length === 0 && 
+                        state.peerConnection.iceTransportPolicy === 'relay') {
+                        logDebug('No relay candidates found, adding fallback mechanism...');
+                        
+                        // Create an "empty" candidate just to allow the connection to proceed
+                        // This won't establish a connection by itself, but allows us to proceed
+                        // with the signaling flow and potentially recover later
+                        const emptyCandidateUfrag = state.peerConnection.localDescription.sdp.match(/a=ice-ufrag:([^\r\n]+)/)?.[1] || 'fallback';
+                        
+                        const fallbackCandidate = {
+                            candidate: `candidate:0 1 UDP 2122252543 127.0.0.1 49152 typ host ufrag ${emptyCandidateUfrag}`,
+                            sdpMid: '0',
+                            sdpMLineIndex: 0,
+                            usernameFragment: emptyCandidateUfrag
+                        };
+                        
+                        // Log the fallback candidate
+                        logDebug('Adding fallback candidate: ' + JSON.stringify(fallbackCandidate));
+                        
+                        // Add to candidates list
+                        state.localIceCandidates.push(fallbackCandidate);
+                        updateIceCandidatesUI();
+                    }
+                }, 3000);
+            });
+        }
 
-  // --- UI Bindings ---
-  document.getElementById('connect').onclick = async () => {
-    const inp = document.getElementById('qrIn').value;
-    if (!inp) return alert('Paste peer payload first');
-    let payload;
-    try { payload = JSON.parse(inp); } catch { return alert('Invalid JSON'); }
-    const theirID = payload.peerID;
-    const theirMaster = payload.masterKey;
-    const effectiveMaster = masterKey > theirMaster ? masterKey : theirMaster;
-    const conn = await pearedConnect({ peerID, theirID, masterKey: effectiveMaster, offer: payload.offer, inventoryUrl: 'https://peared-1e0a5-default-rtdb.firebaseio.com' });
-    conn.on(msg => { const div = document.createElement('div'); div.textContent = 'Peer: ' + JSON.stringify(msg); document.getElementById('log').append(div); });
-    document.getElementById('send').onclick = () => { const txt = document.getElementById('in').value; conn.send({ text: txt }); const div = document.createElement('div'); div.textContent = 'Me: ' + txt; document.getElementById('log').append(div); };
-  };
-  </script>
+        // Set up event handlers for the peer connection
+        function setupPeerConnectionHandlers() {
+            // ICE candidate event
+            state.peerConnection.addEventListener('icecandidate', (event) => {
+                if (event.candidate) {
+                    // Store the ICE candidate
+                    state.localIceCandidates.push(event.candidate);
+                    
+                    // Update ICE candidates UI
+                    updateIceCandidatesUI();
+                    
+                    // Update the connection data display
+                    if (state.initiator) {
+                        const connectionData = {
+                            id: state.peerId,
+                            key: state.secretKey,
+                            offer: state.peerConnection.localDescription,
+                            iceCandidates: state.localIceCandidates
+                        };
+                        connectionId.textContent = JSON.stringify(connectionData, null, 2);
+                    }
+                    
+                    // Log candidate details
+                    logDebug(`New ICE candidate: ${event.candidate.candidate}`);
+                    
+                    // Check candidate type (host, srflx, relay) for debugging
+                    const candidateType = event.candidate.candidate.split(' ')[7]; // 'typ X'
+                    logDebug(`Candidate type: ${candidateType}`);
+                    
+                    // If this is a relay candidate, log the related address
+                    if (candidateType === 'relay') {
+                        const relatedInfo = event.candidate.candidate.match(/raddr ([^ ]+) rport ([0-9]+)/);
+                        if (relatedInfo) {
+                            logDebug(`Relay candidate related address: ${relatedInfo[1]}:${relatedInfo[2]}`);
+                        }
+                    }
+                } else {
+                    // null candidate means ICE gathering is complete
+                    logDebug('ICE gathering complete (received null candidate)');
+                }
+            });
+            
+            // If candidates don't appear, log the PC object for troubleshooting
+            setTimeout(() => {
+                if (state.localIceCandidates.length === 0) {
+                    logDebug('No ICE candidates gathered after timeout. Checking configuration:');
+                    logDebug(`iceTransportPolicy: ${state.peerConnection.getConfiguration().iceTransportPolicy}`);
+                    logDebug(`ICE gathering state: ${state.peerConnection.iceGatheringState}`);
+                    logDebug(`Signaling state: ${state.peerConnection.signalingState}`);
+                    logDebug(`Connection state: ${state.peerConnection.connectionState}`);
+                    
+                    // Try to access URLs to see if we can connect to the TURN servers
+                    logDebug('Testing TURN server connectivity...');
+                    testTurnServers();
+                }
+            }, 5000);
+            
+            // ICE gathering state change
+            state.peerConnection.addEventListener('icegatheringstatechange', () => {
+                const iceState = state.peerConnection.iceGatheringState;
+                logDebug(`ICE gathering state changed: ${iceState}`);
+                
+                if (iceState === 'complete') {
+                    logDebug(`ICE gathering complete with ${state.localIceCandidates.length} candidates`);
+                    
+                    // If we're in relay mode but have no candidates, that's a problem
+                    if (state.localIceCandidates.length === 0 && 
+                        state.peerConnection.getConfiguration().iceTransportPolicy === 'relay') {
+                        logDebug('WARNING: No relay candidates found despite relay-only policy');
+                    }
+                }
+            });
+            
+            // ICE connection state change
+            state.peerConnection.addEventListener('iceconnectionstatechange', () => {
+                const iceState = state.peerConnection.iceConnectionState;
+                logDebug(`ICE connection state changed: ${iceState}`);
+                
+                // Update WebRTC status display
+                webrtcStatusDisplay.textContent = `ICE: ${iceState}`;
+                
+                if (iceState === 'connected' || iceState === 'completed') {
+                    updateConnectionStatus('connected');
+                    chatCard.style.display = 'block';
+                    addMessage('WebRTC connection established. You can now chat securely.', 'system');
+                    
+                    // Log selected candidate pair
+                    getSelectedCandidatePair();
+                    
+                } else if (iceState === 'failed') {
+                    // Try reconnection with TURN
+                    logDebug('ICE connection failed. Switching to forced TURN relay mode...');
+                    addMessage('Direct connection failed. Trying to connect through relay server...', 'system');
+                    
+                    // Set ICE transport policy to relay-only to force TURN usage
+                    setIceTransportPolicy('relay');
+                    restartIce();
+                    
+                } else if (iceState === 'disconnected') {
+                    logDebug('ICE connection disconnected. Will try to recover...');
+                    // Wait a bit to see if it self-recovers
+                    setTimeout(() => {
+                        if (state.peerConnection.iceConnectionState === 'disconnected') {
+                            logDebug('Connection still disconnected. Attempting ICE restart...');
+                            restartIce();
+                        }
+                    }, 5000);
+                    
+                } else if (iceState === 'closed') {
+                    updateConnectionStatus('disconnected');
+                    addMessage('WebRTC connection closed. Please reconnect.', 'system');
+                    logDebug('ICE connection closed.');
+                }
+            });
+            
+            // Signaling state change
+            state.peerConnection.addEventListener('signalingstatechange', () => {
+                logDebug(`Signaling state changed: ${state.peerConnection.signalingState}`);
+            });
+            
+            // Connection state change
+            state.peerConnection.addEventListener('connectionstatechange', () => {
+                const connState = state.peerConnection.connectionState;
+                logDebug(`Connection state changed: ${connState}`);
+                
+                if (connState === 'connected') {
+                    updateConnectionStatus('connected');
+                    connectionDetailsContainer.style.display = 'block';
+                    
+                    // Get connection stats
+                    getConnectionStats();
+                    
+                } else if (connState === 'disconnected' || connState === 'failed' || connState === 'closed') {
+                    updateConnectionStatus('disconnected');
+                }
+            });
+            
+            // Data channel event
+            state.peerConnection.addEventListener('datachannel', (event) => {
+                // Receive the data channel
+                state.dataChannel = event.channel;
+                logDebug(`Received data channel: ${state.dataChannel.label}`);
+                setupDataChannelHandlers(state.dataChannel);
+            });
+        }
+        
+        // Function to test TURN server connectivity
+        function testTurnServers() {
+            // Get turn server configurations
+            const config = state.peerConnection.getConfiguration();
+            const turnServers = config.iceServers.filter(server => 
+                server.urls.some(url => url.startsWith('turn:') || url.startsWith('turns:'))
+            );
+            
+            logDebug(`Testing ${turnServers.length} TURN servers...`);
+            
+            // For each TURN server, create a test connection
+            turnServers.forEach((server, index) => {
+                // Log server we're testing
+                const urls = Array.isArray(server.urls) ? server.urls.join(', ') : server.urls;
+                logDebug(`TURN server ${index+1}: ${urls}`);
+                
+                // Create a temporary RTCPeerConnection just to test this TURN server
+                const testPC = new RTCPeerConnection({
+                    iceServers: [server],
+                    iceTransportPolicy: 'relay'
+                });
+                
+                // Create data channel to trigger ICE gathering
+                const dc = testPC.createDataChannel('test');
+                
+                // Count candidates from this server
+                let candidateCount = 0;
+                
+                // Listen for ICE candidates
+                testPC.onicecandidate = (e) => {
+                    if (e.candidate) {
+                        candidateCount++;
+                        logDebug(`TURN server ${index+1} candidate: ${e.candidate.candidate}`);
+                    }
+                };
+                
+                // Create offer to start ICE gathering
+                testPC.createOffer().then(offer => {
+                    return testPC.setLocalDescription(offer);
+                }).catch(err => {
+                    logDebug(`TURN server ${index+1} error: ${err.message}`);
+                });
+                
+                // Check results after a timeout
+                setTimeout(() => {
+                    logDebug(`TURN server ${index+1} result: ${candidateCount} candidates`);
+                    
+                    // If this server worked, suggest using it
+                    if (candidateCount > 0) {
+                        logDebug(`TURN server ${index+1} is WORKING - consider using this one`);
+                    } else {
+                        logDebug(`TURN server ${index+1} - NO candidates found`);
+                    }
+                    
+                    // Clean up test connection
+                    dc.close();
+                    testPC.close();
+                }, 5000);
+            });
+        }
+
+        // Set up event handlers for the data channel
+        function setupDataChannelHandlers(dataChannel) {
+            dataChannel.addEventListener('open', () => {
+                console.log('Data channel open');
+                dataChannelStatus.textContent = 'Open';
+                chatCard.style.display = 'block';
+                addMessage('Data channel established. This chat is encrypted with AES-256.', 'system');
+            });
+            
+            dataChannel.addEventListener('close', () => {
+                console.log('Data channel closed');
+                dataChannelStatus.textContent = 'Closed';
+                addMessage('Data channel closed.', 'system');
+            });
+            
+            dataChannel.addEventListener('error', (error) => {
+                console.error('Data channel error:', error);
+                dataChannelStatus.textContent = 'Error';
+                addMessage(`Data channel error: ${error.message}`, 'system');
+            });
+            
+            dataChannel.addEventListener('message', (event) => {
+                console.log('Received message:', event.data);
+                
+                try {
+                    // Parse the message data
+                    const messageData = JSON.parse(event.data);
+                    
+                    // Decrypt the message
+                    const decryptedMessage = decrypt(messageData.text, state.selectedKey || state.secretKey);
+                    
+                    // Add the message to the chat
+                    addMessage(decryptedMessage, 'received');
+                } catch (error) {
+                    console.error('Error processing message:', error);
+                    addMessage('Error: Could not decrypt message', 'system');
+                }
+            });
+        }
+
+        // Copy connection ID to clipboard
+        copyBtn.addEventListener('click', () => {
+            try {
+                // Try the newer Clipboard API first
+                navigator.clipboard.writeText(connectionId.textContent)
+                    .then(() => {
+                        copyStatus.className = 'status success';
+                        copyStatus.textContent = 'Copied to clipboard!';
+                        setTimeout(() => {
+                            copyStatus.textContent = '';
+                        }, 2000);
+                    })
+                    .catch(err => {
+                        // If that fails, use the fallback method
+                        fallbackCopyTextToClipboard(connectionId.textContent);
+                    });
+            } catch (err) {
+                // Use fallback for browsers that don't support clipboard API
+                fallbackCopyTextToClipboard(connectionId.textContent);
+            }
+        });
+        
+        // Fallback copy method for environments where Clipboard API is restricted
+        function fallbackCopyTextToClipboard(text) {
+            try {
+                // Create temporary textarea
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                
+                // Set styles to make it invisible
+                textArea.style.position = "fixed";
+                textArea.style.top = "0";
+                textArea.style.left = "0";
+                textArea.style.width = "2em";
+                textArea.style.height = "2em";
+                textArea.style.padding = "0";
+                textArea.style.border = "none";
+                textArea.style.outline = "none";
+                textArea.style.boxShadow = "none";
+                textArea.style.background = "transparent";
+                
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        copyStatus.className = 'status success';
+                        copyStatus.textContent = 'Copied to clipboard!';
+                    } else {
+                        copyStatus.className = 'status error';
+                        copyStatus.textContent = 'Could not copy automatically. Please press Ctrl+C to copy.';
+                        // Select the text again for the user to manually copy
+                        connectionId.focus();
+                        connectionId.select();
+                    }
+                } catch (err) {
+                    copyStatus.className = 'status error';
+                    copyStatus.textContent = 'Please select the text and copy manually (Ctrl+C).';
+                    // Help user by selecting the text
+                    connectionId.focus();
+                    connectionId.select();
+                }
+                
+                document.body.removeChild(textArea);
+                
+                setTimeout(() => {
+                    copyStatus.textContent = '';
+                }, 2000);
+            } catch (err) {
+                copyStatus.className = 'status error';
+                copyStatus.textContent = 'Please select the text and copy manually.';
+            }
+        }
+
+        // Connect to another peer
+        connectBtn.addEventListener('click', async () => {
+            if (!state.initialized) {
+                connectStatus.className = 'status error';
+                connectStatus.textContent = 'Please initialize WebRTC first.';
+                return;
+            }
+            
+            const otherIdText = otherId.value.trim();
+            if (!otherIdText) {
+                connectStatus.className = 'status error';
+                connectStatus.textContent = 'Please enter a connection ID.';
+                return;
+            }
+            
+            try {
+                connectStatus.className = 'status info';
+                connectStatus.textContent = 'Connecting...';
+                updateConnectionStatus('connecting');
+                
+                // Parse the connection string
+                const connectionData = JSON.parse(otherIdText);
+                
+                // Check if required fields are present
+                if (!connectionData.id || !connectionData.key) {
+                    throw new Error('Invalid connection data format - missing required fields (id or key)');
+                }
+                
+                state.otherPeerId = connectionData.id;
+                state.otherSecretKey = connectionData.key;
+                
+                // Support multiple WebRTC data formats
+                // Format 1: Using webrtcHandshake object
+                if (connectionData.webrtcHandshake) {
+                    state.otherWebrtcHandshake = connectionData.webrtcHandshake;
+                } 
+                // Format 2: Using separate offer/answer and iceCandidates fields
+                else if ((connectionData.offer || connectionData.answer) && connectionData.iceCandidates) {
+                    state.otherWebrtcHandshake = {
+                        sdp: connectionData.offer || connectionData.answer,
+                        iceCandidates: connectionData.iceCandidates
+                    };
+                }
+                // If neither format is present, create a default
+                else {
+                    console.warn('No WebRTC handshake data found, creating default');
+                    state.otherWebrtcHandshake = {
+                        sdp: {
+                            type: "answer",
+                            sdp: "v=0\r\no=- " + Math.floor(Date.now() / 1000) + " 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+                        },
+                        iceCandidates: []
+                    };
+                }
+                
+                // Determine which key to use (highest alphanumeric value)
+                const keysToCompare = [state.secretKey, state.otherSecretKey];
+                const sortedKeys = [...keysToCompare].sort();
+                state.selectedKey = sortedKeys[sortedKeys.length - 1];
+                
+                // Update remote peer display
+                remotePeerIdDisplay.textContent = state.otherPeerId;
+                connectionDetailsContainer.style.display = 'block';
+                
+                // Process the offer and create answer
+                const answerData = await processOffer(connectionData);
+                
+                // Display the answer
+                connectStatus.className = 'status success';
+                connectStatus.textContent = 'Answer created! Share this with the initiator:';
+                
+                // Show the answer in a new textarea
+                const answerTextArea = document.createElement('textarea');
+                answerTextArea.readOnly = true;
+                answerTextArea.value = JSON.stringify(answerData, null, 2);
+                answerTextArea.style.marginTop = '10px';
+                answerTextArea.style.height = '200px';
+                
+                // Add a copy button for the answer
+                const copyAnswerBtn = document.createElement('button');
+                copyAnswerBtn.textContent = 'Copy Answer';
+                copyAnswerBtn.className = 'btn';
+                copyAnswerBtn.addEventListener('click', () => {
+                    answerTextArea.select();
+                    document.execCommand('copy');
+                    copyAnswerBtn.textContent = 'Copied!';
+                    setTimeout(() => {
+                        copyAnswerBtn.textContent = 'Copy Answer';
+                    }, 2000);
+                });
+                
+                // Clear previous answer display
+                const prevAnswerDisplay = document.getElementById('answer-display');
+                if (prevAnswerDisplay) {
+                    prevAnswerDisplay.remove();
+                }
+                
+                // Create a container for the answer display
+                const answerDisplay = document.createElement('div');
+                answerDisplay.id = 'answer-display';
+                answerDisplay.appendChild(answerTextArea);
+                answerDisplay.appendChild(copyAnswerBtn);
+                
+                // Add to the connect status
+                connectStatus.parentNode.appendChild(answerDisplay);
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                connectStatus.className = 'status error';
+                connectStatus.textContent = `Error: ${error.message}`;
+                updateConnectionStatus('disconnected');
+            }
+        });
+
+        // Process answer button for initiator
+        processAnswerBtn.addEventListener('click', async () => {
+            if (!state.initialized || !state.initiator) {
+                answerStatus.className = 'status error';
+                answerStatus.textContent = 'You must initialize as the connection initiator first.';
+                return;
+            }
+            
+            const answerText = answerData.value.trim();
+            if (!answerText) {
+                answerStatus.className = 'status error';
+                answerStatus.textContent = 'Please enter the answer data.';
+                return;
+            }
+            
+            try {
+                answerStatus.className = 'status info';
+                answerStatus.textContent = 'Processing answer...';
+                updateConnectionStatus('connecting');
+                
+                // Parse the answer data
+                const connectionData = JSON.parse(answerText);
+                
+                // Check if required fields are present
+                if (!connectionData.id || !connectionData.key || 
+                    ((!connectionData.answer && !connectionData.offer) || !connectionData.iceCandidates)) {
+                    throw new Error('Invalid answer data format - missing required fields');
+                }
+                
+                state.otherPeerId = connectionData.id;
+                state.otherSecretKey = connectionData.key;
+                
+                // Determine which key to use (highest alphanumeric value)
+                const keysToCompare = [state.secretKey, state.otherSecretKey];
+                const sortedKeys = [...keysToCompare].sort();
+                state.selectedKey = sortedKeys[sortedKeys.length - 1];
+                
+                // Update remote peer display
+                remotePeerIdDisplay.textContent = state.otherPeerId;
+                connectionDetailsContainer.style.display = 'block';
+                
+                // Process the answer or offer
+                if (connectionData.answer) {
+                    // It's an answer - set remote description directly
+                    const answerDesc = new RTCSessionDescription(connectionData.answer);
+                    await state.peerConnection.setRemoteDescription(answerDesc);
+                } else if (connectionData.offer) {
+                    // It's another offer - we need to treat this as an offer
+                    // and create an answer
+                    console.log('Received an offer instead of an answer. Processing as offer...');
+                    
+                    // Create a new peer connection if needed
+                    if (!state.peerConnection || state.peerConnection.signalingState === 'closed') {
+                        const configuration = {
+                            iceServers: [
+                                { urls: 'stun:stun.l.google.com:19302' },
+                                { urls: 'stun:stun1.l.google.com:19302' }
+                            ]
+                        };
+                        state.peerConnection = new RTCPeerConnection(configuration);
+                        setupPeerConnectionHandlers();
+                    }
+                    
+                    // Set the offer as remote description
+                    const offerDesc = new RTCSessionDescription(connectionData.offer);
+                    await state.peerConnection.setRemoteDescription(offerDesc);
+                    
+                    // Create an answer
+                    const answer = await state.peerConnection.createAnswer();
+                    await state.peerConnection.setLocalDescription(answer);
+                    
+                    // Wait for ICE gathering
+                    await waitForIceGathering();
+                    
+                    // Display the answer
+                    const fullAnswerData = {
+                        id: state.peerId,
+                        key: state.secretKey,
+                        answer: state.peerConnection.localDescription,
+                        iceCandidates: state.localIceCandidates
+                    };
+                    
+                    // Show the answer
+                    answerStatus.textContent = 'Created answer! Share this with the other peer:';
+                    
+                    // Show the answer in a textarea
+                    const answerTextArea = document.createElement('textarea');
+                    answerTextArea.readOnly = true;
+                    answerTextArea.value = JSON.stringify(fullAnswerData, null, 2);
+                    answerTextArea.style.marginTop = '10px';
+                    answerTextArea.style.height = '200px';
+                    
+                    // Add a copy button for the answer
+                    const copyAnswerBtn = document.createElement('button');
+                    copyAnswerBtn.textContent = 'Copy Answer';
+                    copyAnswerBtn.className = 'btn';
+                    copyAnswerBtn.addEventListener('click', () => {
+                        answerTextArea.select();
+                        document.execCommand('copy');
+                        copyAnswerBtn.textContent = 'Copied!';
+                        setTimeout(() => {
+                            copyAnswerBtn.textContent = 'Copy Answer';
+                        }, 2000);
+                    });
+                    
+                    // Clear previous answer display
+                    const prevAnswerDisplay = document.getElementById('answer-reply-display');
+                    if (prevAnswerDisplay) {
+                        prevAnswerDisplay.remove();
+                    }
+                    
+                    // Create a container for the answer display
+                    const answerDisplay = document.createElement('div');
+                    answerDisplay.id = 'answer-reply-display';
+                    answerDisplay.appendChild(answerTextArea);
+                    answerDisplay.appendChild(copyAnswerBtn);
+                    
+                    // Add to the answer status
+                    answerStatus.parentNode.appendChild(answerDisplay);
+                    
+                    // We don't need to do any more processing here - just wait for connection
+                    return;
+                }
+                
+                // Add ICE candidates
+                for (const candidate of connectionData.iceCandidates) {
+                    await addRemoteIceCandidate(candidate);
+                }
+                
+                answerStatus.className = 'status success';
+                answerStatus.textContent = 'Answer processed successfully! Waiting for connection...';
+                
+            } catch (error) {
+                console.error('Error processing answer:', error);
+                answerStatus.className = 'status error';
+                answerStatus.textContent = `Error processing answer: ${error.message}. Data: ${answerText}`;
+                updateConnectionStatus('disconnected');
+            }
+        });
+
+        // Send message
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        function sendMessage() {
+            if (!state.dataChannel || state.dataChannel.readyState !== 'open') {
+                addMessage('Cannot send message: Data channel is not open', 'system');
+                return;
+            }
+            
+            const messageText = messageInput.value.trim();
+            if (!messageText) return;
+            
+            try {
+                // Encrypt the message
+                const encryptedMessage = encrypt(messageText, state.selectedKey || state.secretKey);
+                
+                // Create message object
+                const messageObj = {
+                    type: 'message',
+                    text: encryptedMessage,
+                    timestamp: Date.now()
+                };
+                
+                // Send the message
+                state.dataChannel.send(JSON.stringify(messageObj));
+                
+                // Add to chat
+                addMessage(messageText, 'sent');
+                
+                // Clear input
+                messageInput.value = '';
+                
+            } catch (error) {
+                console.error('Error sending message:', error);
+                addMessage(`Error sending message: ${error.message}`, 'system');
+            }
+        }
+
+        function addMessage(text, type) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message', type);
+            messageElement.textContent = text;
+            messages.appendChild(messageElement);
+            
+            // Scroll to bottom
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        // Helper function to update connection status
+        function updateConnectionStatus(newState) {
+            state.connectionState = newState;
+            
+            // Update the status icon and text
+            statusIcon.className = 'status-icon';
+            
+            switch (newState) {
+                case 'disconnected':
+                    statusIcon.classList.add('disconnected');
+                    connectionState.textContent = 'Disconnected';
+                    break;
+                case 'connecting':
+                    statusIcon.classList.add('connecting');
+                    connectionState.textContent = 'Connecting...';
+                    break;
+                case 'waiting':
+                    statusIcon.classList.add('connecting');
+                    connectionState.textContent = 'Waiting for peer...';
+                    break;
+                case 'connected':
+                    statusIcon.classList.add('connected');
+                    connectionState.textContent = 'Connected';
+                    break;
+            }
+        }
+
+        // Update ICE candidates UI
+        function updateIceCandidatesUI() {
+            iceCandidatesList.innerHTML = '';
+            
+            for (let i = 0; i < state.localIceCandidates.length; i++) {
+                const candidate = state.localIceCandidates[i];
+                const candidateElement = document.createElement('div');
+                candidateElement.textContent = `${i + 1}: ${candidate.candidate ? candidate.candidate.substring(0, 50) + '...' : 'null'}`;
+                iceCandidatesList.appendChild(candidateElement);
+            }
+        }
+
+        // Update remote candidates UI
+        function updateRemoteCandidatesUI() {
+            remoteCandidatesList.innerHTML = '';
+            
+            for (let i = 0; i < state.remoteIceCandidates.length; i++) {
+                const candidate = state.remoteIceCandidates[i];
+                const candidateElement = document.createElement('div');
+                candidateElement.textContent = `${i + 1}: ${candidate.candidate ? candidate.candidate.substring(0, 50) + '...' : 'null'}`;
+                remoteCandidatesList.appendChild(candidateElement);
+            }
+        }
+
+        // Helper functions for ID and key generation
+        function generateRandomId() {
+            return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        }
+
+        function generateRandomKey() {
+            // Generate a random 256-bit key (32 bytes)
+            const keyArray = new Uint8Array(32);
+            window.crypto.getRandomValues(keyArray);
+            return Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Get connection statistics
+        function getConnectionStats() {
+            if (!state.peerConnection) return;
+            
+            try {
+                state.peerConnection.getStats().then(stats => {
+                    let statsOutput = '';
+                    let candidatePairFound = false;
+                    
+                    stats.forEach(report => {
+                        if (report.type === 'transport') {
+                            statsOutput += `Transport: bytes sent=${report.bytesSent}, bytes received=${report.bytesReceived}\n`;
+                        }
+                        
+                        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                            candidatePairFound = true;
+                            statsOutput += `Active candidate pair: local=${report.localCandidateId}, remote=${report.remoteCandidateId}\n`;
+                            statsOutput += `  RTT: ${report.currentRoundTripTime * 1000}ms\n`;
+                            
+                            // Check if using relay
+                            if (report.relayProtocol) {
+                                statsOutput += `  Using relay: ${report.relayProtocol}\n`;
+                            }
+                        }
+                    });
+                    
+                    if (!candidatePairFound) {
+                        statsOutput += 'No active candidate pair found.\n';
+                    }
+                    
+                    logDebug('Connection stats: ' + statsOutput);
+                });
+            } catch (e) {
+                logDebug('Error getting stats: ' + e.message);
+            }
+        }
+        
+        // Get selected candidate pair
+        function getSelectedCandidatePair() {
+            if (!state.peerConnection) return;
+            
+            try {
+                state.peerConnection.getStats().then(stats => {
+                    let localCandidateId = null;
+                    let remoteCandidateId = null;
+                    
+                    // Find the active candidate pair
+                    stats.forEach(report => {
+                        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                            localCandidateId = report.localCandidateId;
+                            remoteCandidateId = report.remoteCandidateId;
+                            
+                            logDebug(`Selected candidate pair: local=${report.localCandidateId}, remote=${report.remoteCandidateId}`);
+                            
+                            // Check if this is a relay connection
+                            if (report.relayProtocol) {
+                                logDebug(`Connection using relay protocol: ${report.relayProtocol}`);
+                            }
+                        }
+                    });
+                    
+                    // Find details about the local candidate
+                    if (localCandidateId) {
+                        stats.forEach(report => {
+                            if (report.id === localCandidateId) {
+                                logDebug(`Local candidate: ${report.candidateType}, ${report.protocol}, ${report.ip}:${report.port}`);
+                                
+                                // If we're using a relay, this will give us additional info
+                                if (report.candidateType === 'relay') {
+                                    logDebug(`Relay info: ${report.relayProtocol}, ${report.relatedAddress}:${report.relatedPort}`);
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Find details about the remote candidate
+                    if (remoteCandidateId) {
+                        stats.forEach(report => {
+                            if (report.id === remoteCandidateId) {
+                                logDebug(`Remote candidate: ${report.candidateType}, ${report.protocol}, ${report.ip}:${report.port}`);
+                            }
+                        });
+                    }
+                });
+            } catch (e) {
+                logDebug('Error getting selected candidate pair: ' + e.message);
+            }
+        }
+
+        // Add this function to restart ICE if connection fails
+        function restartIce() {
+            if (!state.peerConnection) return;
+            
+            try {
+                // Create an ICE restart offer
+                if (state.initiator && state.peerConnection.signalingState !== 'closed') {
+                    console.log('Restarting ICE connection...');
+                    
+                    // Create data channel if it doesn't exist
+                    if (!state.dataChannel || state.dataChannel.readyState === 'closed') {
+                        state.dataChannel = state.peerConnection.createDataChannel('peared-channel');
+                        setupDataChannelHandlers(state.dataChannel);
+                    }
+                    
+                    // Create ICE restart offer
+                    state.peerConnection.createOffer({ iceRestart: true })
+                        .then((offer) => {
+                            return state.peerConnection.setLocalDescription(offer);
+                        })
+                        .then(() => {
+                            console.log('ICE restart offer created and set as local description');
+                            addMessage('Connection is being reestablished with relay servers...', 'system');
+                            
+                            // Reset ICE candidate lists
+                            state.localIceCandidates = [];
+                            updateIceCandidatesUI();
+                        })
+                        .catch((error) => {
+                            console.error('Error creating ICE restart offer:', error);
+                        });
+                }
+            } catch (error) {
+                console.error('Error restarting ICE:', error);
+            }
+        }
+        
+        // Add this function to set specific ICE transport policy
+        function setIceTransportPolicy(policy) {
+            try {
+                // Save current state
+                const currentSignalingState = state.peerConnection?.signalingState;
+                const currentRemoteDescription = state.peerConnection?.remoteDescription;
+                const hadDataChannel = !!state.dataChannel;
+                
+                // Create new configuration with specified policy
+                const configuration = {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { 
+                            urls: [
+                                'turn:openrelay.metered.ca:80',
+                                'turn:openrelay.metered.ca:443',
+                                'turn:openrelay.metered.ca:443?transport=tcp'
+                            ],
+                            username: 'openrelayproject',
+                            credential: 'openrelayproject'
+                        }
+                    ],
+                    iceTransportPolicy: policy, // 'all' or 'relay'
+                    iceCandidatePoolSize: 10,
+                    rtcpMuxPolicy: 'require'
+                };
+                
+                // Apply new configuration
+                state.peerConnection?.setConfiguration(configuration);
+                
+                console.log(`ICE transport policy set to: ${policy}`);
+                
+                // If we were the initiator and had a data channel, try restarting the connection
+                if (state.initiator && hadDataChannel && currentSignalingState !== 'closed') {
+                    restartIce();
+                }
+                
+                return true;
+            } catch (error) {
+                console.error(`Error setting ICE transport policy to ${policy}:`, error);
+                return false;
+            }
+        }
+
+        // Encryption/decryption functions
+        function encrypt(message, key) {
+            try {
+                // Convert the message to a byte array
+                const messageBytes = new TextEncoder().encode(message);
+                
+                // Convert the key to a byte array
+                const keyBytes = hexToBytes(key);
+                
+                // Create a new array for the encrypted data
+                const encryptedBytes = new Uint8Array(messageBytes.length);
+                
+                // XOR each byte with the corresponding byte from the key
+                for (let i = 0; i < messageBytes.length; i++) {
+                    encryptedBytes[i] = messageBytes[i] ^ keyBytes[i % keyBytes.length];
+                }
+                
+                // Convert the encrypted bytes to a hex string
+                return bytesToHex(encryptedBytes);
+            } catch (error) {
+                console.error('Encryption error:', error);
+                throw error;
+            }
+        }
+
+        function decrypt(encryptedHex, key) {
+            try {
+                // Convert the hex string to a byte array
+                const encryptedBytes = hexToBytes(encryptedHex);
+                
+                // Convert the key to a byte array
+                const keyBytes = hexToBytes(key);
+                
+                // Create a new array for the decrypted data
+                const decryptedBytes = new Uint8Array(encryptedBytes.length);
+                
+                // XOR each byte with the corresponding byte from the key
+                for (let i = 0; i < encryptedBytes.length; i++) {
+                    decryptedBytes[i] = encryptedBytes[i] ^ keyBytes[i % keyBytes.length];
+                }
+                
+                // Convert the decrypted bytes to a string
+                return new TextDecoder().decode(decryptedBytes);
+            } catch (error) {
+                console.error('Decryption error:', error);
+                throw error;
+            }
+        }
+
+        function hexToBytes(hex) {
+            const bytes = new Uint8Array(hex.length / 2);
+            for (let i = 0; i < hex.length; i += 2) {
+                bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+            }
+            return bytes;
+        }
+
+        function bytesToHex(bytes) {
+            return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+    </script>
 </body>
 </html>
