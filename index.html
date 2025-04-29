@@ -6,7 +6,7 @@
     <title>Peared - P2P Messaging</title>
     <!-- QR Code libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -874,6 +874,13 @@
             try {
                 scanStatus.className = 'status info';
                 scanStatus.textContent = 'Accessing camera...';
+                logDebug('Attempting to access camera');
+                
+                // Check if jsQR global function exists (it should now with our fallback)
+                if (typeof jsQR !== 'function') {
+                    logDebug('jsQR still not defined even with fallback - serious issue');
+                    throw new Error('QR scanning function unavailable');
+                }
                 
                 const constraints = { 
                     video: { 
@@ -888,13 +895,16 @@
                 }
                 
                 // Get camera stream
+                logDebug('Requesting camera access with constraints: ' + JSON.stringify(constraints));
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 state.currentStream = stream;
                 state.videoTrack = stream.getVideoTracks()[0];
+                logDebug('Camera access granted: ' + state.videoTrack.label);
                 
                 // Display camera stream
                 qrVideo.srcObject = stream;
                 await qrVideo.play();
+                logDebug('Camera stream started');
                 
                 // Enable scanning
                 state.scanning = true;
@@ -902,15 +912,42 @@
                 stopCameraBtn.disabled = false;
                 
                 // Start scanning for QR codes
+                logDebug('Starting QR code scanning with our implementation');
                 scanQRCode();
                 
                 scanStatus.className = 'status success';
                 scanStatus.textContent = 'Camera active. Scanning for QR codes...';
                 
+                // Show warning that we're using basic detection
+                setTimeout(() => {
+                    scanStatus.className = 'status info';
+                    scanStatus.textContent = 'Scanning for QR codes (basic detection). Hold QR code steady in frame.';
+                }, 3000);
+                
             } catch (error) {
                 console.error('Camera access error:', error);
-                scanStatus.className = 'status error';
-                scanStatus.textContent = `Error accessing camera: ${error.message}`;
+                logDebug('Camera access error: ' + error.message);
+                if (error.name === 'NotAllowedError') {
+                    scanStatus.className = 'status error';
+                    scanStatus.textContent = 'Camera access denied. Please allow camera access and try again.';
+                } else if (error.name === 'NotFoundError') {
+                    scanStatus.className = 'status error';
+                    scanStatus.textContent = 'No camera found on this device.';
+                } else {
+                    scanStatus.className = 'status error';
+                    scanStatus.textContent = `Error accessing camera: ${error.message}`;
+                    logDebug('Suggesting manual connection method');
+                    
+                    // Switch to manual tab after error
+                    setTimeout(() => {
+                        document.querySelector('[data-tab="manual-tab"]').click();
+                    }, 2000);
+                }
+                
+                // Ensure buttons are in correct state
+                state.scanning = false;
+                startCameraBtn.disabled = false;
+                stopCameraBtn.disabled = true;
             }
         }
 
@@ -959,9 +996,21 @@
             if (!state.scanning) return;
             
             try {
+                // Check for jsQR function again as a precaution
+                if (typeof jsQR !== 'function') {
+                    logDebug('jsQR function not available in scanQRCode');
+                    throw new Error('QR scanning function unavailable');
+                }
+                
                 // Set up canvas for capturing video frame
                 const videoWidth = qrVideo.videoWidth;
                 const videoHeight = qrVideo.videoHeight;
+                
+                if (!videoWidth || !videoHeight) {
+                    logDebug('Video dimensions not available yet, retrying...');
+                    requestAnimationFrame(scanQRCode);
+                    return;
+                }
                 
                 qrCanvas.width = videoWidth;
                 qrCanvas.height = videoHeight;
@@ -972,39 +1021,80 @@
                 // Get image data for QR code scanning
                 const imageData = context.getImageData(0, 0, videoWidth, videoHeight);
                 
-                // Scan for QR code
+                // Scan for QR code using our implementation
                 const code = jsQR(imageData.data, imageData.width, imageData.height, {
                     inversionAttempts: "dontInvert"
                 });
                 
                 if (code) {
-                    // We found a QR code
-                    console.log('QR code detected:', code.data);
+                    // Check if this is from our built-in detector which can't actually decode
+                    if (code.detected && !code.data) {
+                        logDebug('Potential QR code detected but cannot decode');
+                        // Just continue scanning
+                        requestAnimationFrame(scanQRCode);
+                        return;
+                    }
                     
-                    try {
-                        // Try to parse as JSON
-                        const connectionData = JSON.parse(code.data);
+                    // We found a QR code with data
+                    if (code.data) {
+                        logDebug('QR code detected with data: ' + code.data.substring(0, 50) + '...');
                         
-                        // Check if it's valid connection data
-                        if (connectionData.id && connectionData.key && 
-                           (connectionData.offer || connectionData.answer)) {
+                        try {
+                            // Try to parse as JSON
+                            const connectionData = JSON.parse(code.data);
                             
-                            // Successfully found a valid QR code
-                            qrResult.style.display = 'block';
-                            qrResult.textContent = `Found valid Peared QR code! Connecting to ${connectionData.id}...`;
-                            
-                            // Stop scanning
-                            stopCamera();
-                            
-                            // Process the connection data
-                            processConnectionData(connectionData);
-                            
-                            // Don't request any more animation frames
-                            return;
+                            // Check if it's valid connection data (standard format)
+                            if (connectionData.id && connectionData.key && 
+                              (connectionData.offer || connectionData.answer)) {
+                                
+                                // Successfully found a valid QR code
+                                qrResult.style.display = 'block';
+                                qrResult.textContent = `Found valid Peared QR code! Connecting to ${connectionData.id}...`;
+                                logDebug('Valid QR code found (standard format), connecting...');
+                                
+                                // Stop scanning
+                                stopCamera();
+                                
+                                // Process the connection data
+                                processConnectionData(connectionData);
+                                
+                                // Don't request any more animation frames
+                                return;
+                            } 
+                            // Check for compact format
+                            else if (connectionData.i && connectionData.k && 
+                                    (connectionData.o || connectionData.a)) {
+                                
+                                logDebug('Found compact format QR code');
+                                
+                                // Convert to standard format
+                                const standardFormat = {
+                                    id: connectionData.i,
+                                    key: connectionData.k,
+                                    offer: connectionData.o,
+                                    answer: connectionData.a,
+                                    iceCandidates: connectionData.c
+                                };
+                                
+                                // Successfully found a valid QR code
+                                qrResult.style.display = 'block';
+                                qrResult.textContent = `Found valid Peared QR code! Connecting to ${standardFormat.id}...`;
+                                
+                                // Stop scanning
+                                stopCamera();
+                                
+                                // Process the connection data
+                                processConnectionData(standardFormat);
+                                
+                                // Don't request any more animation frames
+                                return;
+                            } else {
+                                logDebug('Found QR code but invalid format: ' + JSON.stringify(connectionData).substring(0, 100));
+                            }
+                        } catch (e) {
+                            logDebug('Error parsing QR code data: ' + e.message);
+                            // Continue scanning - it wasn't a valid QR code for our app
                         }
-                    } catch (e) {
-                        console.error('Error parsing QR code data:', e);
-                        // Continue scanning - it wasn't a valid QR code for our app
                     }
                 }
                 
@@ -1013,12 +1103,15 @@
                 
             } catch (error) {
                 console.error('QR scanning error:', error);
-                scanStatus.className = 'status error';
-                scanStatus.textContent = `Scanning error: ${error.message}`;
+                logDebug('QR scanning error: ' + error.message);
+                scanStatus.className = 'status warning';
+                scanStatus.textContent = `Scanning issue: ${error.message}. Continuing to scan...`;
                 
                 // Continue scanning despite error
                 setTimeout(() => {
-                    requestAnimationFrame(scanQRCode);
+                    if (state.scanning) {
+                        requestAnimationFrame(scanQRCode);
+                    }
                 }, 1000);
             }
         }
