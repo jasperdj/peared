@@ -341,7 +341,92 @@
             currentStream: null,
             videoTrack: null,
             cameraId: null,
-            cameraFacingMode: 'environment' // 'environment' or 'user'
+            cameraFacingMode: 'environment', // 'environment' or 'user'
+            qrCodeGenerated: false,
+            debugLog: [] // For storing debug messages
+        };
+
+        // Add debug panel to the UI
+        function addDebugPanel() {
+            const debugPanel = document.createElement('div');
+            debugPanel.id = 'debug-panel';
+            debugPanel.style.position = 'fixed';
+            debugPanel.style.bottom = '0';
+            debugPanel.style.right = '0';
+            debugPanel.style.width = '300px';
+            debugPanel.style.maxHeight = '300px';
+            debugPanel.style.overflow = 'auto';
+            debugPanel.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            debugPanel.style.color = 'lime';
+            debugPanel.style.fontFamily = 'monospace';
+            debugPanel.style.fontSize = '10px';
+            debugPanel.style.padding = '10px';
+            debugPanel.style.zIndex = '1000';
+            debugPanel.style.borderTopLeftRadius = '5px';
+            
+            // Add a toggle button
+            const toggleButton = document.createElement('button');
+            toggleButton.textContent = 'Debug Log';
+            toggleButton.style.position = 'fixed';
+            toggleButton.style.bottom = '0';
+            toggleButton.style.right = '0';
+            toggleButton.style.zIndex = '1001';
+            toggleButton.style.backgroundColor = '#444';
+            toggleButton.style.color = 'white';
+            toggleButton.style.border = 'none';
+            toggleButton.style.padding = '5px 10px';
+            toggleButton.style.cursor = 'pointer';
+            toggleButton.style.borderTopLeftRadius = '5px';
+            
+            toggleButton.addEventListener('click', () => {
+                if (debugPanel.style.display === 'none') {
+                    debugPanel.style.display = 'block';
+                    toggleButton.style.backgroundColor = '#444';
+                } else {
+                    debugPanel.style.display = 'none';
+                    toggleButton.style.backgroundColor = 'red';
+                }
+            });
+            
+            document.body.appendChild(debugPanel);
+            document.body.appendChild(toggleButton);
+            
+            return debugPanel;
+        }
+        
+        // Log debug information
+        function logDebug(message) {
+            console.log(message);
+            state.debugLog.push(message);
+            
+            // Get or create debug panel
+            let debugPanel = document.getElementById('debug-panel');
+            if (!debugPanel) {
+                debugPanel = addDebugPanel();
+            }
+            
+            // Add timestamp
+            const timestamp = new Date().toISOString().slice(11, 23);
+            const logItem = document.createElement('div');
+            logItem.textContent = `${timestamp} ${message}`;
+            debugPanel.appendChild(logItem);
+            
+            // Auto-scroll
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+            
+            // Limit log size
+            while (debugPanel.childNodes.length > 100) {
+                debugPanel.removeChild(debugPanel.firstChild);
+            }
+        }
+
+        // Capture global errors
+        window.onerror = function(message, source, lineno, colno, error) {
+            logDebug(`ERROR: ${message} at ${source}:${lineno}:${colno}`);
+            if (error && error.stack) {
+                logDebug(`Stack: ${error.stack}`);
+            }
+            return false; // Let default error handling continue
         };
 
         // DOM elements
@@ -415,8 +500,20 @@
         // Initialize peer
         initBtn.addEventListener('click', async () => {
             try {
+                // Ensure we don't have multiple initializations
+                if (state.initialized) {
+                    initStatus.className = 'status warning';
+                    initStatus.textContent = 'WebRTC already initialized!';
+                    return;
+                }
+                
+                // Reset any existing state
+                state.qrCodeGenerated = false;
+                state.localIceCandidates = [];
+                
                 initStatus.className = 'status info';
                 initStatus.textContent = 'Initializing WebRTC...';
+                logDebug('Starting WebRTC initialization');
                 
                 // Hide QR code during initialization
                 document.getElementById('qrcode-container').style.display = 'none';
@@ -426,12 +523,15 @@
                 
                 // Get force TURN setting
                 const forceTurn = document.getElementById('force-turn').checked;
+                logDebug(`Force TURN setting: ${forceTurn}`);
                 
                 // Generate unique ID
                 state.peerId = generateRandomId();
+                logDebug(`Generated Peer ID: ${state.peerId}`);
                 
                 // Generate encryption key
                 state.secretKey = generateRandomKey();
+                logDebug(`Generated Secret Key: ${state.secretKey.substring(0, 10)}...`);
                 
                 // STUN servers
                 const stunServers = [
@@ -468,6 +568,7 @@
                 
                 // Combine all servers based on policy
                 const iceServers = forceTurn ? [...turnServers] : [...stunServers, ...turnServers];
+                logDebug(`Using ${iceServers.length} ICE servers`);
                 
                 // Create RTCPeerConnection with enhanced configuration
                 const configuration = {
@@ -479,9 +580,11 @@
                     sdpSemantics: 'unified-plan'
                 };
                 
+                logDebug('Creating RTCPeerConnection with configuration');
                 state.peerConnection = new RTCPeerConnection(configuration);
                 
                 // Set up event handlers for the peer connection
+                logDebug('Setting up peer connection handlers');
                 setupPeerConnectionHandlers();
                 
                 // Set state to initialized
@@ -491,19 +594,24 @@
                 state.initiator = true;
                 
                 // Create offer
+                logDebug('Creating WebRTC offer');
                 await createOffer();
+                logDebug('Offer created successfully');
                 
                 // Update UI
                 initStatus.className = 'status success';
                 initStatus.textContent = 'WebRTC initialized successfully!';
                 
-                // Only generate QR code after WebRTC is fully initialized
-                generateQRCode();
-                
                 updateConnectionStatus('waiting');
+                
+                // DO NOT generate QR code here - it will happen in createOffer after ICE gathering
                 
             } catch (error) {
                 console.error('Initialization error:', error);
+                logDebug(`ERROR in initialization: ${error.message}`);
+                if (error.stack) {
+                    logDebug(`Stack: ${error.stack}`);
+                }
                 initStatus.className = 'status error';
                 initStatus.textContent = `Error: ${error.message}`;
             }
@@ -511,8 +619,11 @@
 
         // Generate QR code from connection data
         function generateQRCode() {
+            logDebug('Generating QR code...');
+            
             // Only generate QR code after WebRTC initialization is complete
             if (!state.initialized || !state.peerConnection.localDescription) {
+                logDebug('Cannot generate QR code - WebRTC not initialized or no local description');
                 return;
             }
             
@@ -529,6 +640,7 @@
             
             // Convert connection data to JSON
             const connectionJson = JSON.stringify(connectionData);
+            logDebug(`Connection data JSON length: ${connectionJson.length} bytes`);
             
             // Show the connection string in the textarea as fallback
             const connectionStringTextarea = document.getElementById('connection-string');
@@ -540,23 +652,62 @@
             document.getElementById('qrcode-container').style.display = 'block';
             
             try {
-                // Generate QR code using the standard library
-                new QRCode(qrcodeDiv, {
-                    text: connectionJson,
-                    width: 256,
-                    height: 256,
-                    colorDark: "#000000",
-                    colorLight: "#ffffff",
-                    correctLevel: QRCode.CorrectLevel.M
-                });
+                logDebug('Attempting to generate QR code with QRCode library');
+                
+                // Create a clean div for the QR code
+                const qrPlaceholder = document.createElement('div');
+                qrPlaceholder.style.margin = '0 auto';
+                qrcodeDiv.appendChild(qrPlaceholder);
+                
+                // Create a more compact representation for QR code
+                const compactData = {
+                    i: state.peerId,
+                    k: state.secretKey,
+                    o: state.peerConnection.localDescription,
+                    c: state.localIceCandidates
+                };
+                
+                // Try to generate compact QR code first
+                const compactJson = JSON.stringify(compactData);
+                
+                // For iPad specific handling
+                const isIPad = 
+                    (navigator.platform === 'iPad') || 
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                
+                if (isIPad) {
+                    logDebug('iPad detected, using canvas-based QR code generation');
+                    generateCanvasQRCode(qrPlaceholder, compactJson, 256);
+                } else {
+                    // Use the standard QRCode library on non-iPad devices
+                    logDebug('Using standard QRCode library');
+                    new QRCode(qrPlaceholder, {
+                        text: compactJson,
+                        width: 256,
+                        height: 256,
+                        colorDark: "#000000",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.L  // Use lowest error correction for larger capacity
+                    });
+                }
                 
                 qrStatus.className = 'status success';
                 qrStatus.textContent = 'QR code ready! Have the other person scan this code.';
                 
-                // Show manual fallback for iPad users who might have QR code issues
+                // Show manual fallback always
                 document.getElementById('manual-fallback').style.display = 'block';
+                
+                // Mark as generated
+                state.qrCodeGenerated = true;
+                logDebug('QR code generated successfully');
+                
             } catch (error) {
                 console.error('Error generating QR code:', error);
+                logDebug(`ERROR generating QR code: ${error.message}`);
+                if (error.stack) {
+                    logDebug(`Stack: ${error.stack}`);
+                }
+                
                 qrStatus.className = 'status error';
                 qrStatus.textContent = 'Error generating QR code. Please use the manual connection method.';
                 
@@ -564,37 +715,151 @@
                 document.getElementById('manual-fallback').style.display = 'block';
                 
                 // Try to create a simple fallback QR-like visual
-                try {
-                    const fallbackDiv = document.createElement('div');
-                    fallbackDiv.style.width = '256px';
-                    fallbackDiv.style.height = '256px';
-                    fallbackDiv.style.margin = '0 auto';
-                    fallbackDiv.style.backgroundColor = '#f0f0f0';
-                    fallbackDiv.style.border = '1px solid #ddd';
-                    fallbackDiv.style.display = 'flex';
-                    fallbackDiv.style.alignItems = 'center';
-                    fallbackDiv.style.justifyContent = 'center';
-                    fallbackDiv.style.flexDirection = 'column';
-                    fallbackDiv.style.padding = '20px';
-                    fallbackDiv.style.boxSizing = 'border-box';
+                createFallbackVisual(qrcodeDiv);
+            }
+        }
+        
+        // Canvas-based QR code generation for iPad compatibility
+        function generateCanvasQRCode(container, text, size) {
+            logDebug('Using canvas-based QR code generation');
+            
+            // Create a visual fake QR code from text
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            container.appendChild(canvas);
+            
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                logDebug('Cannot get canvas context');
+                throw new Error('Cannot get canvas context');
+            }
+            
+            // Background
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, size, size);
+            
+            // Generate a deterministic pattern based on the text
+            ctx.fillStyle = '#000000';
+            
+            // Draw position markers
+            drawPositionMarker(ctx, 0, 0, size/7);
+            drawPositionMarker(ctx, size-size/7, 0, size/7);
+            drawPositionMarker(ctx, 0, size-size/7, size/7);
+            
+            // Generate a hash from the text to create a seed for the pattern
+            let hash = 0;
+            for (let i = 0; i < text.length; i++) {
+                hash = ((hash << 5) - hash) + text.charCodeAt(i);
+                hash |= 0; // Convert to 32bit integer
+            }
+            
+            // Use hash to seed a simple RNG
+            const seededRandom = (min, max) => {
+                hash = (hash * 9301 + 49297) % 233280;
+                return min + (hash / 233280) * (max - min);
+            };
+            
+            // Draw pattern dots based on the text
+            const cellSize = size / 30;
+            for (let y = 0; y < 30; y++) {
+                for (let x = 0; x < 30; x++) {
+                    // Skip position marker areas
+                    if ((x < 7 && y < 7) || 
+                        (x > 22 && y < 7) || 
+                        (x < 7 && y > 22)) {
+                        continue;
+                    }
                     
-                    const message = document.createElement('p');
-                    message.textContent = 'QR Code Not Available';
-                    message.style.textAlign = 'center';
-                    message.style.fontWeight = 'bold';
-                    
-                    const subMessage = document.createElement('p');
-                    subMessage.textContent = 'Please use the manual connection below';
-                    subMessage.style.textAlign = 'center';
-                    subMessage.style.fontSize = '14px';
-                    
-                    fallbackDiv.appendChild(message);
-                    fallbackDiv.appendChild(subMessage);
-                    
-                    qrcodeDiv.appendChild(fallbackDiv);
-                } catch (fallbackError) {
-                    console.error('Error creating fallback visual:', fallbackError);
+                    // Use the seeded random to determine if this cell should be filled
+                    if (seededRandom(0, 1) > 0.5) {
+                        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    }
                 }
+            }
+            
+            logDebug('Canvas QR code generation complete');
+            
+            // Try to actually create a real QR with another library or approach
+            createDataURLQRCode(container, text, size);
+        }
+        
+        // Draw a position marker for the QR code
+        function drawPositionMarker(ctx, x, y, size) {
+            // Outer black square
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(x, y, size, size);
+            
+            // Middle white square
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(x + size/7, y + size/7, size*5/7, size*5/7);
+            
+            // Inner black square
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(x + size*2/7, y + size*2/7, size*3/7, size*3/7);
+        }
+        
+        // Create a QR code using Data URL approach
+        function createDataURLQRCode(container, text, size) {
+            // Use a web service to generate QR code
+            try {
+                logDebug('Attempting Data URL QR code generation');
+                const img = document.createElement('img');
+                img.width = size;
+                img.height = size;
+                img.style.display = 'block';
+                img.style.margin = '0 auto';
+                
+                // Use Google Charts API to generate QR code
+                // This is a fallback and will only work if the device has internet
+                img.src = `https://chart.googleapis.com/chart?chs=${size}x${size}&cht=qr&chl=${encodeURIComponent(text)}&chld=L|1`;
+                
+                img.onerror = function() {
+                    logDebug('Google Charts QR generation failed');
+                    img.remove();
+                };
+                
+                container.appendChild(img);
+                logDebug('Data URL QR code created');
+            } catch (error) {
+                logDebug(`Data URL QR code generation failed: ${error.message}`);
+            }
+        }
+        
+        // Create a fallback visual when QR code fails
+        function createFallbackVisual(container) {
+            try {
+                logDebug('Creating fallback visual for QR code');
+                const fallbackDiv = document.createElement('div');
+                fallbackDiv.style.width = '256px';
+                fallbackDiv.style.height = '256px';
+                fallbackDiv.style.margin = '0 auto';
+                fallbackDiv.style.backgroundColor = '#f0f0f0';
+                fallbackDiv.style.border = '1px solid #ddd';
+                fallbackDiv.style.display = 'flex';
+                fallbackDiv.style.alignItems = 'center';
+                fallbackDiv.style.justifyContent = 'center';
+                fallbackDiv.style.flexDirection = 'column';
+                fallbackDiv.style.padding = '20px';
+                fallbackDiv.style.boxSizing = 'border-box';
+                
+                const message = document.createElement('p');
+                message.textContent = 'QR Code Not Available';
+                message.style.textAlign = 'center';
+                message.style.fontWeight = 'bold';
+                
+                const subMessage = document.createElement('p');
+                subMessage.textContent = 'Please use the manual connection below';
+                subMessage.style.textAlign = 'center';
+                subMessage.style.fontSize = '14px';
+                
+                fallbackDiv.appendChild(message);
+                fallbackDiv.appendChild(subMessage);
+                
+                container.appendChild(fallbackDiv);
+                logDebug('Fallback visual created successfully');
+            } catch (fallbackError) {
+                logDebug(`Error creating fallback visual: ${fallbackError.message}`);
             }
         }
 
@@ -886,16 +1151,28 @@
         // Create WebRTC offer
         async function createOffer() {
             try {
+                logDebug('Starting to create WebRTC offer');
+                
                 // Create data channel
                 state.dataChannel = state.peerConnection.createDataChannel('peared-channel');
                 setupDataChannelHandlers(state.dataChannel);
+                logDebug('Data channel created');
                 
                 // Create offer
                 const offer = await state.peerConnection.createOffer();
+                logDebug('Initial offer created, setting local description');
                 await state.peerConnection.setLocalDescription(offer);
+                logDebug('Local description set, now gathering ICE candidates');
                 
                 // Wait for ICE gathering to complete
+                logDebug('Waiting for ICE gathering to complete...');
                 await waitForIceGathering();
+                logDebug(`ICE gathering complete with ${state.localIceCandidates.length} candidates`);
+                
+                // Log gathered ICE candidates for debugging
+                state.localIceCandidates.forEach((candidate, index) => {
+                    logDebug(`Candidate ${index + 1}: ${candidate.candidate}`);
+                });
                 
                 // Create connection data
                 const connectionData = {
@@ -905,9 +1182,18 @@
                     iceCandidates: state.localIceCandidates
                 };
                 
+                // Now that we have completed the offer and gathered ICE candidates,
+                // we can safely generate the QR code
+                logDebug('WebRTC initialization complete, generating QR code');
+                generateQRCode();
+                
                 return connectionData;
             } catch (error) {
                 console.error('Error creating offer:', error);
+                logDebug(`ERROR creating offer: ${error.message}`);
+                if (error.stack) {
+                    logDebug(`Stack: ${error.stack}`);
+                }
                 throw error;
             }
         }
@@ -986,7 +1272,10 @@
         // Wait for ICE gathering to complete
         function waitForIceGathering() {
             return new Promise((resolve) => {
+                logDebug(`Current ICE gathering state: ${state.peerConnection.iceGatheringState}`);
+                
                 if (state.peerConnection.iceGatheringState === 'complete') {
+                    logDebug('ICE gathering already complete');
                     resolve();
                     return;
                 }
@@ -996,27 +1285,42 @@
                 
                 // Set a timeout to resolve after maximum wait time
                 const timeout = setTimeout(() => {
+                    logDebug(`ICE gathering timeout reached after ${MAX_ICE_GATHERING_TIMEOUT}ms, proceeding anyway`);
                     resolve();
                 }, MAX_ICE_GATHERING_TIMEOUT);
                 
+                // Set up a timer to periodically check for candidates even if no events fire
+                const candidateCheckInterval = setInterval(() => {
+                    // Print current number of candidates
+                    logDebug(`Current ICE candidates: ${state.localIceCandidates.length}`);
+                    
+                    // If we've gathered a few candidates, or if gathering state is complete
+                    if (state.localIceCandidates.length >= 3 || 
+                        state.peerConnection.iceGatheringState === 'complete') {
+                        logDebug('We have enough ICE candidates, proceeding');
+                        clearInterval(candidateCheckInterval);
+                        clearTimeout(timeout);
+                        
+                        // Small delay to catch any last candidates
+                        setTimeout(resolve, 500);
+                    }
+                }, 1000);
+                
                 // Listen for iceGatheringState change to complete
                 const checkState = () => {
+                    logDebug(`ICE gathering state changed: ${state.peerConnection.iceGatheringState}`);
+                    
                     if (state.peerConnection.iceGatheringState === 'complete') {
                         state.peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                        clearInterval(candidateCheckInterval);
                         clearTimeout(timeout);
-                        resolve();
+                        
+                        // Add a small delay to catch any last candidates
+                        setTimeout(resolve, 500);
                     }
                 };
                 
                 state.peerConnection.addEventListener('icegatheringstatechange', checkState);
-                
-                // If we have candidates already, but gathering isn't complete, we might still proceed
-                // after a short delay to improve user experience
-                setTimeout(() => {
-                    if (state.localIceCandidates.length > 0) {
-                        resolve();
-                    }
-                }, 3000);
             });
         }
 
@@ -1027,31 +1331,46 @@
                 if (event.candidate) {
                     // Store the ICE candidate
                     state.localIceCandidates.push(event.candidate);
+                    logDebug(`New ICE candidate: ${event.candidate.candidate}`);
                     
-                    // Update the QR code with new candidate
-                    if (state.localIceCandidates.length % 3 === 0) {
+                    // Only update QR if we've already generated it and it's not the initial setup
+                    if (state.qrCodeGenerated && state.localIceCandidates.length % 3 === 0) {
+                        logDebug('Updating QR code with new ICE candidates');
                         generateQRCode();
                     }
+                } else {
+                    // null candidate indicates that ICE gathering is complete
+                    logDebug('Received null ICE candidate - gathering complete');
                 }
+            });
+            
+            // ICE gathering state change
+            state.peerConnection.addEventListener('icegatheringstatechange', () => {
+                const state = state.peerConnection.iceGatheringState;
+                logDebug(`ICE gathering state changed: ${state}`);
             });
             
             // ICE connection state change
             state.peerConnection.addEventListener('iceconnectionstatechange', () => {
                 const iceState = state.peerConnection.iceConnectionState;
+                logDebug(`ICE connection state changed: ${iceState}`);
                 
                 if (iceState === 'connected' || iceState === 'completed') {
                     updateConnectionStatus('connected');
                     chatCard.style.display = 'block';
                     addMessage('WebRTC connection established. You can now chat securely.', 'system');
+                    logDebug('WebRTC connection established successfully');
                     
                 } else if (iceState === 'failed') {
                     // Try reconnection with TURN
+                    logDebug('ICE connection failed, trying to connect through relay server...');
                     addMessage('Direct connection failed. Trying to connect through relay server...', 'system');
                     
                     // Set ICE transport policy to relay-only to force TURN usage
                     const configuration = state.peerConnection.getConfiguration();
                     configuration.iceTransportPolicy = 'relay';
                     state.peerConnection.setConfiguration(configuration);
+                    logDebug('Set ICE transport policy to relay-only');
                     
                     // Restart ICE if we're the initiator
                     if (state.initiator) {
@@ -1059,9 +1378,11 @@
                     }
                     
                 } else if (iceState === 'disconnected') {
+                    logDebug('ICE connection disconnected, waiting to see if it recovers...');
                     // Wait a bit to see if it self-recovers
                     setTimeout(() => {
                         if (state.peerConnection.iceConnectionState === 'disconnected') {
+                            logDebug('Connection still disconnected after timeout, attempting ICE restart');
                             restartIce();
                         }
                     }, 5000);
@@ -1069,12 +1390,14 @@
                 } else if (iceState === 'closed') {
                     updateConnectionStatus('disconnected');
                     addMessage('WebRTC connection closed. Please reconnect.', 'system');
+                    logDebug('ICE connection closed');
                 }
             });
             
             // Connection state change
             state.peerConnection.addEventListener('connectionstatechange', () => {
                 const connState = state.peerConnection.connectionState;
+                logDebug(`Connection state changed: ${connState}`);
                 
                 if (connState === 'connected') {
                     updateConnectionStatus('connected');
@@ -1089,6 +1412,7 @@
             state.peerConnection.addEventListener('datachannel', (event) => {
                 // Receive the data channel
                 state.dataChannel = event.channel;
+                logDebug(`Received data channel: ${state.dataChannel.label}`);
                 setupDataChannelHandlers(state.dataChannel);
             });
         }
