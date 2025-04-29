@@ -1346,8 +1346,8 @@
             
             // ICE gathering state change
             state.peerConnection.addEventListener('icegatheringstatechange', () => {
-                const state = state.peerConnection.iceGatheringState;
-                logDebug(`ICE gathering state changed: ${state}`);
+                const iceGatheringState = state.peerConnection.iceGatheringState;
+                logDebug(`ICE gathering state changed: ${iceGatheringState}`);
             });
             
             // ICE connection state change
