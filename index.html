@@ -4,9 +4,97 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Peared - P2P Messaging</title>
-    <!-- QR Code libraries -->
+    <!-- QR Code libraries with fallbacks -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+        // Create a fallback if QRCode library failed to load
+        if (typeof QRCode === 'undefined') {
+            console.warn('QRCode library failed to load, creating fallback');
+            window.QRCode = function(container, options) {
+                if (typeof container === 'string') {
+                    container = document.getElementById(container);
+                }
+                
+                // Create a simple visual representation
+                container.innerHTML = '';
+                
+                const message = document.createElement('div');
+                message.style.width = options.width + 'px';
+                message.style.height = options.height + 'px';
+                message.style.backgroundColor = '#f8f8f8';
+                message.style.border = '1px solid #ddd';
+                message.style.margin = '0 auto';
+                message.style.display = 'flex';
+                message.style.flexDirection = 'column';
+                message.style.justifyContent = 'center';
+                message.style.alignItems = 'center';
+                message.style.padding = '20px';
+                message.style.boxSizing = 'border-box';
+                
+                const icon = document.createElement('div');
+                icon.style.width = '100px';
+                icon.style.height = '100px';
+                icon.style.border = '10px solid #333';
+                icon.style.borderRadius = '20px';
+                icon.style.position = 'relative';
+                icon.style.marginBottom = '15px';
+
+                const innerSquare = document.createElement('div');
+                innerSquare.style.width = '40px';
+                innerSquare.style.height = '40px';
+                innerSquare.style.backgroundColor = '#333';
+                innerSquare.style.position = 'absolute';
+                innerSquare.style.top = '50%';
+                innerSquare.style.left = '50%';
+                innerSquare.style.transform = 'translate(-50%, -50%)';
+                
+                icon.appendChild(innerSquare);
+                message.appendChild(icon);
+                
+                const text = document.createElement('p');
+                text.textContent = 'QR Code Not Available';
+                text.style.fontFamily = 'Arial, sans-serif';
+                text.style.textAlign = 'center';
+                text.style.margin = '0';
+                
+                const subtext = document.createElement('p');
+                subtext.textContent = 'Please use the manual connection method below';
+                subtext.style.fontFamily = 'Arial, sans-serif';
+                subtext.style.textAlign = 'center';
+                subtext.style.fontSize = '12px';
+                subtext.style.color = '#666';
+                subtext.style.marginTop = '5px';
+                
+                message.appendChild(text);
+                message.appendChild(subtext);
+                
+                container.appendChild(message);
+                
+                // Expose the required interface
+                this.clear = function() {
+                    container.innerHTML = '';
+                };
+                
+                this.makeCode = function(text) {
+                    // Nothing to do here in our fallback
+                };
+            };
+            
+            // Add static property for compatibility
+            window.QRCode.CorrectLevel = { L: 1, M: 0, Q: 3, H: 2 };
+        }
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+    <script>
+        // Create a fallback if jsQR library failed to load
+        if (typeof jsQR === 'undefined') {
+            console.warn('jsQR library failed to load, creating fallback');
+            window.jsQR = function(data, width, height, options) {
+                // Return null to indicate no QR code was found
+                return null;
+            };
+        }
+    </script>
     <style>
         * {
             box-sizing: border-box;
@@ -271,7 +359,14 @@
         
         <div id="show-qr-tab" class="tab-content active">
             <p>Show this QR code to the other person:</p>
-            <div id="qrcode"></div>
+            <div id="qrcode-container" style="display: none;">
+                <div id="qrcode"></div>
+                <div id="manual-fallback" style="display: none; margin-top: 15px;">
+                    <p>If the QR code doesn't display correctly, use this connection string:</p>
+                    <textarea id="connection-string" style="width: 100%; height: 100px; font-size: 12px;" readonly></textarea>
+                    <button id="copy-connection-btn">Copy Connection String</button>
+                </div>
+            </div>
             <div id="qr-status" class="status info">Initialize WebRTC first to generate a QR code.</div>
         </div>
         
@@ -400,6 +495,12 @@
                 initStatus.className = 'status info';
                 initStatus.textContent = 'Initializing WebRTC...';
                 
+                // Hide QR code during initialization
+                document.getElementById('qrcode-container').style.display = 'none';
+                qrcodeDiv.innerHTML = '';
+                qrStatus.className = 'status info';
+                qrStatus.textContent = 'WebRTC initializing, please wait...';
+                
                 // Get force TURN setting
                 const forceTurn = document.getElementById('force-turn').checked;
                 
@@ -473,7 +574,7 @@
                 initStatus.className = 'status success';
                 initStatus.textContent = 'WebRTC initialized successfully!';
                 
-                // Generate QR code with the connection data
+                // Only generate QR code after WebRTC is fully initialized
                 generateQRCode();
                 
                 updateConnectionStatus('waiting');
@@ -487,6 +588,11 @@
 
         // Generate QR code from connection data
         function generateQRCode() {
+            // Only generate QR code after WebRTC initialization is complete
+            if (!state.initialized || !state.peerConnection.localDescription) {
+                return;
+            }
+            
             // Clear previous QR code
             qrcodeDiv.innerHTML = '';
             
@@ -501,18 +607,32 @@
             // Convert connection data to JSON
             const connectionJson = JSON.stringify(connectionData);
             
-            // Generate QR code
-            const qrcode = new QRCode(qrcodeDiv, {
-                text: connectionJson,
-                width: 256,
-                height: 256,
-                colorDark: "#000000",
-                colorLight: "#ffffff",
-                correctLevel: QRCode.CorrectLevel.M
-            });
+            // Show the connection string in the textarea as fallback
+            const connectionStringTextarea = document.getElementById('connection-string');
+            if (connectionStringTextarea) {
+                connectionStringTextarea.value = connectionJson;
+            }
             
-            qrStatus.className = 'status success';
-            qrStatus.textContent = 'QR code ready! Have the other person scan this code.';
+            // Show the QR code container
+            document.getElementById('qrcode-container').style.display = 'block';
+            
+            try {
+                // Try to generate QR code with our alternative robust method
+                createQRCodeAlternative(connectionJson, qrcodeDiv);
+                
+                qrStatus.className = 'status success';
+                qrStatus.textContent = 'QR code ready! Have the other person scan this code.';
+                
+                // Always show manual fallback for iPad users who might have QR code issues
+                document.getElementById('manual-fallback').style.display = 'block';
+            } catch (error) {
+                console.error('Error generating QR code:', error);
+                qrStatus.className = 'status error';
+                qrStatus.textContent = 'Error generating QR code. Please use the manual connection method.';
+                
+                // Show manual fallback
+                document.getElementById('manual-fallback').style.display = 'block';
+            }
         }
 
         // Camera handling
