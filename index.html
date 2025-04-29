@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Peared - P2P Messaging</title>
+    <!-- QR Code libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -123,36 +126,6 @@
             margin: 10px auto;
             border-radius: 8px;
         }
-        .connection-id {
-            font-family: monospace;
-            background: #f0f0f0;
-            padding: 10px;
-            border-radius: 4px;
-            margin-bottom: 15px;
-            word-break: break-all;
-            max-height: 150px;
-            overflow-y: auto;
-        }
-        .tabs {
-            display: flex;
-            border-bottom: 1px solid #ddd;
-            margin-bottom: 15px;
-        }
-        .tab {
-            padding: 10px 15px;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-        }
-        .tab.active {
-            border-bottom: 2px solid #4CAF50;
-            font-weight: bold;
-        }
-        .tab-content {
-            display: none;
-        }
-        .tab-content.active {
-            display: block;
-        }
         .connection-status {
             display: flex;
             align-items: center;
@@ -177,22 +150,94 @@
         @keyframes blink {
             50% { opacity: 0.5; }
         }
-        #ice-candidates-list, #remote-candidates-list {
-            font-family: monospace;
-            font-size: 12px;
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 15px;
+        }
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .tab.active {
+            border-bottom: 2px solid #4CAF50;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        #qrcode {
+            text-align: center;
+            margin: 20px 0;
+        }
+        #qrcode img {
+            margin: 0 auto;
+        }
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        #qr-video {
+            width: 100%;
+            border-radius: 8px;
+        }
+        #qr-canvas {
+            display: none;
+        }
+        .scan-region-highlight {
+            position: absolute;
+            border: 2px solid #4CAF50;
+            border-radius: 8px;
+            width: 80%;
+            height: 80%;
+            top: 10%;
+            left: 10%;
+            box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.5);
+            box-sizing: border-box;
+        }
+        .scan-region-highlight-bg {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+        }
+        .camera-controls {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        .camera-controls button {
+            flex: 1;
+            margin: 0 5px;
+        }
+        .camera-controls button:first-child {
+            margin-left: 0;
+        }
+        .camera-controls button:last-child {
+            margin-right: 0;
+        }
+        #qr-result {
             margin-top: 10px;
             padding: 10px;
-            background-color: #f5f5f5;
             border-radius: 4px;
-            max-height: 100px;
-            overflow-y: auto;
+            font-family: monospace;
+            word-break: break-all;
+            display: none;
         }
     </style>
 </head>
 <body>
     <h1>Peared</h1>
     <div class="subtitle">Secure P2P Messaging</div>
-
     <div class="card">
         <h2>Step 1: Initialize WebRTC</h2>
         <div style="margin-bottom: 10px;">
@@ -210,29 +255,7 @@
         </div>
         <button id="init-btn">Initialize</button>
         <div id="init-status"></div>
-        <div id="peer-details" style="display: none;">
-            <p><strong>Your Connection Details:</strong></p>
-            <div class="tabs">
-                <div class="tab active" data-tab="connection-id-tab">Connection ID</div>
-                <div class="tab" data-tab="connection-details-tab">Details</div>
-            </div>
-            <div class="tab-content active" id="connection-id-tab">
-                <div id="connection-id" class="connection-id"></div>
-                <button id="copy-btn">Copy to Clipboard</button>
-                <div id="copy-status"></div>
-            </div>
-            <div class="tab-content" id="connection-details-tab">
-                <p><strong>Peer ID:</strong> <span id="peer-id-display"></span></p>
-                <p><strong>Encryption Key:</strong> <span id="encryption-key-display"></span></p>
-                <p><strong>WebRTC Status:</strong> <span id="webrtc-status-display"></span></p>
-                <div>
-                    <p><strong>Local ICE Candidates:</strong></p>
-                    <div id="ice-candidates-list"></div>
-                </div>
-            </div>
-        </div>
     </div>
-
     <div class="card">
         <h2>Step 2: Connect with Another Peer</h2>
         <div class="connection-status">
@@ -241,33 +264,47 @@
         </div>
         
         <div id="connection-tabs" class="tabs">
-            <div class="tab active" data-tab="connect-tab">Connect to Peer</div>
-            <div class="tab" data-tab="answer-tab">Process Answer (for Initiator)</div>
+            <div class="tab active" data-tab="show-qr-tab">Show My QR Code</div>
+            <div class="tab" data-tab="scan-qr-tab">Scan QR Code</div>
+            <div class="tab" data-tab="manual-tab">Manual Connect</div>
         </div>
         
-        <div id="connect-tab" class="tab-content active">
+        <div id="show-qr-tab" class="tab-content active">
+            <p>Show this QR code to the other person:</p>
+            <div id="qrcode"></div>
+            <div id="qr-status" class="status info">Initialize WebRTC first to generate a QR code.</div>
+        </div>
+        
+        <div id="scan-qr-tab" class="tab-content">
+            <p>Scan the QR code from the other person:</p>
+            <div id="video-container">
+                <div class="scan-region-highlight-bg"></div>
+                <div class="scan-region-highlight"></div>
+                <video id="qr-video" playsinline></video>
+                <canvas id="qr-canvas"></canvas>
+            </div>
+            <div class="camera-controls">
+                <button id="start-camera-btn">Start Camera</button>
+                <button id="stop-camera-btn" disabled>Stop Camera</button>
+                <button id="switch-camera-btn">Switch Camera</button>
+            </div>
+            <div id="scan-status" class="status info">Press "Start Camera" to begin scanning.</div>
+            <div id="qr-result" class="status success"></div>
+        </div>
+        
+        <div id="manual-tab" class="tab-content">
             <p>Enter the Connection ID of your peer:</p>
             <textarea id="other-id" placeholder="Paste the Connection ID here"></textarea>
             <button id="connect-btn">Connect</button>
             <div id="connect-status"></div>
         </div>
         
-        <div id="answer-tab" class="tab-content">
-            <p>If you initiated the connection, paste the answer from the other peer here:</p>
-            <textarea id="answer-data" placeholder="Paste the answer data here"></textarea>
-            <button id="process-answer-btn">Process Answer</button>
-            <div id="answer-status"></div>
-        </div>
-        
-        <div id="connection-details-container" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+        <div id="connection-details" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
             <p><strong>Connection Details:</strong></p>
             <p><strong>Remote Peer ID:</strong> <span id="remote-peer-id"></span></p>
             <p><strong>Data Channel Status:</strong> <span id="datachannel-status">Not created</span></p>
-            <p><strong>Remote ICE Candidates:</strong></p>
-            <div id="remote-candidates-list"></div>
         </div>
     </div>
-
     <div class="card" id="chat-card" style="display: none;">
         <h2>Secure Chat</h2>
         <div class="messages" id="messages"></div>
@@ -276,7 +313,6 @@
             <button id="send-btn">Send</button>
         </div>
     </div>
-
     <script>
         // Application state
         const state = {
@@ -293,30 +329,32 @@
             remoteIceCandidates: [],
             initiator: false,
             offerSdp: null,
-            answerSdp: null
+            answerSdp: null,
+            scanning: false,
+            currentStream: null,
+            videoTrack: null,
+            cameraId: null,
+            cameraFacingMode: 'environment' // 'environment' or 'user'
         };
 
         // DOM elements
         const initBtn = document.getElementById('init-btn');
         const initStatus = document.getElementById('init-status');
-        const peerDetails = document.getElementById('peer-details');
-        const connectionId = document.getElementById('connection-id');
-        const peerIdDisplay = document.getElementById('peer-id-display');
-        const encryptionKeyDisplay = document.getElementById('encryption-key-display');
-        const webrtcStatusDisplay = document.getElementById('webrtc-status-display');
-        const copyBtn = document.getElementById('copy-btn');
-        const copyStatus = document.getElementById('copy-status');
+        const qrcodeDiv = document.getElementById('qrcode');
+        const qrStatus = document.getElementById('qr-status');
+        const qrVideo = document.getElementById('qr-video');
+        const qrCanvas = document.getElementById('qr-canvas');
+        const qrResult = document.getElementById('qr-result');
+        const startCameraBtn = document.getElementById('start-camera-btn');
+        const stopCameraBtn = document.getElementById('stop-camera-btn');
+        const switchCameraBtn = document.getElementById('switch-camera-btn');
+        const scanStatus = document.getElementById('scan-status');
         const otherId = document.getElementById('other-id');
         const connectBtn = document.getElementById('connect-btn');
         const connectStatus = document.getElementById('connect-status');
-        const answerData = document.getElementById('answer-data');
-        const processAnswerBtn = document.getElementById('process-answer-btn');
-        const answerStatus = document.getElementById('answer-status');
         const statusIcon = document.getElementById('status-icon');
         const connectionState = document.getElementById('connection-state');
-        const iceCandidatesList = document.getElementById('ice-candidates-list');
-        const remoteCandidatesList = document.getElementById('remote-candidates-list');
-        const connectionDetailsContainer = document.getElementById('connection-details-container');
+        const connectionDetails = document.getElementById('connection-details');
         const remotePeerIdDisplay = document.getElementById('remote-peer-id');
         const dataChannelStatus = document.getElementById('datachannel-status');
         const chatCard = document.getElementById('chat-card');
@@ -326,7 +364,7 @@
         const forceTurnCheckbox = document.getElementById('force-turn');
         const turnServerSelector = document.getElementById('turn-server');
 
-        // Tab navigation for all tab sets
+        // Tab navigation
         document.querySelectorAll('.tabs').forEach(tabSet => {
             tabSet.querySelectorAll('.tab').forEach(tab => {
                 tab.addEventListener('click', () => {
@@ -346,82 +384,15 @@
                     // Show corresponding content
                     const tabId = tab.getAttribute('data-tab');
                     document.getElementById(tabId).classList.add('active');
+
+                    // If switching to scan tab, handle camera permissions
+                    if (tabId === 'scan-qr-tab' && !state.scanning) {
+                        scanStatus.className = 'status info';
+                        scanStatus.textContent = 'Press "Start Camera" to begin scanning.';
+                    }
                 });
             });
         });
-
-        // Add debug panel to the UI
-        function addDebugPanel() {
-            const debugPanel = document.createElement('div');
-            debugPanel.id = 'debug-panel';
-            debugPanel.style.position = 'fixed';
-            debugPanel.style.bottom = '0';
-            debugPanel.style.right = '0';
-            debugPanel.style.width = '300px';
-            debugPanel.style.maxHeight = '300px';
-            debugPanel.style.overflow = 'auto';
-            debugPanel.style.backgroundColor = 'rgba(0,0,0,0.7)';
-            debugPanel.style.color = 'lime';
-            debugPanel.style.fontFamily = 'monospace';
-            debugPanel.style.fontSize = '10px';
-            debugPanel.style.padding = '10px';
-            debugPanel.style.zIndex = '1000';
-            debugPanel.style.borderTopLeftRadius = '5px';
-            
-            // Add a toggle button
-            const toggleButton = document.createElement('button');
-            toggleButton.textContent = 'Debug Log';
-            toggleButton.style.position = 'fixed';
-            toggleButton.style.bottom = '0';
-            toggleButton.style.right = '0';
-            toggleButton.style.zIndex = '1001';
-            toggleButton.style.backgroundColor = '#444';
-            toggleButton.style.color = 'white';
-            toggleButton.style.border = 'none';
-            toggleButton.style.padding = '5px 10px';
-            toggleButton.style.cursor = 'pointer';
-            toggleButton.style.borderTopLeftRadius = '5px';
-            
-            toggleButton.addEventListener('click', () => {
-                if (debugPanel.style.display === 'none') {
-                    debugPanel.style.display = 'block';
-                    toggleButton.style.backgroundColor = '#444';
-                } else {
-                    debugPanel.style.display = 'none';
-                    toggleButton.style.backgroundColor = 'red';
-                }
-            });
-            
-            document.body.appendChild(debugPanel);
-            document.body.appendChild(toggleButton);
-            
-            return debugPanel;
-        }
-        
-        // Log debug information
-        function logDebug(message) {
-            console.log(message);
-            
-            // Get or create debug panel
-            let debugPanel = document.getElementById('debug-panel');
-            if (!debugPanel) {
-                debugPanel = addDebugPanel();
-            }
-            
-            // Add timestamp
-            const timestamp = new Date().toISOString().slice(11, 23);
-            const logItem = document.createElement('div');
-            logItem.textContent = `${timestamp} ${message}`;
-            debugPanel.appendChild(logItem);
-            
-            // Auto-scroll
-            debugPanel.scrollTop = debugPanel.scrollHeight;
-            
-            // Limit log size
-            while (debugPanel.childNodes.length > 100) {
-                debugPanel.removeChild(debugPanel.firstChild);
-            }
-        }
 
         // Initialize peer
         initBtn.addEventListener('click', async () => {
@@ -438,17 +409,14 @@
                 // Generate encryption key
                 state.secretKey = generateRandomKey();
                 
-                // Create RTCPeerConnection with enhanced configuration
                 // STUN servers
                 const stunServers = [
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
-                    { urls: 'stun:stun4.l.google.com:19302' }
+                    { urls: 'stun:stun2.l.google.com:19302' }
                 ];
                 
-                // TURN servers - testing multiple options
+                // TURN servers
                 const turnServers = [
                     // OpenRelay public TURN servers
                     { 
@@ -463,12 +431,6 @@
                     // Viagenie TURN server
                     {
                         urls: 'turn:numb.viagenie.ca:3478',
-                        username: 'webrtc@live.com',
-                        credential: 'muazkh'
-                    },
-                    // Backup Viagenie TURN server with TCP
-                    {
-                        urls: 'turn:numb.viagenie.ca:3478?transport=tcp',
                         username: 'webrtc@live.com',
                         credential: 'muazkh'
                     },
@@ -493,8 +455,6 @@
                     sdpSemantics: 'unified-plan'
                 };
                 
-                logDebug(`Initializing with transport policy: ${forceTurn ? 'relay' : 'all'}`);
-                
                 state.peerConnection = new RTCPeerConnection(configuration);
                 
                 // Set up event handlers for the peer connection
@@ -513,10 +473,8 @@
                 initStatus.className = 'status success';
                 initStatus.textContent = 'WebRTC initialized successfully!';
                 
-                peerIdDisplay.textContent = state.peerId;
-                encryptionKeyDisplay.textContent = state.secretKey.substring(0, 10) + '...';
-                webrtcStatusDisplay.textContent = 'Ready (offer created)';
-                peerDetails.style.display = 'block';
+                // Generate QR code with the connection data
+                generateQRCode();
                 
                 updateConnectionStatus('waiting');
                 
@@ -524,7 +482,295 @@
                 console.error('Initialization error:', error);
                 initStatus.className = 'status error';
                 initStatus.textContent = `Error: ${error.message}`;
-                logDebug(`Initialization error: ${error.message}`);
+            }
+        });
+
+        // Generate QR code from connection data
+        function generateQRCode() {
+            // Clear previous QR code
+            qrcodeDiv.innerHTML = '';
+            
+            // Create connection data
+            const connectionData = {
+                id: state.peerId,
+                key: state.secretKey,
+                offer: state.peerConnection.localDescription,
+                iceCandidates: state.localIceCandidates
+            };
+            
+            // Convert connection data to JSON
+            const connectionJson = JSON.stringify(connectionData);
+            
+            // Generate QR code
+            const qrcode = new QRCode(qrcodeDiv, {
+                text: connectionJson,
+                width: 256,
+                height: 256,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
+            
+            qrStatus.className = 'status success';
+            qrStatus.textContent = 'QR code ready! Have the other person scan this code.';
+        }
+
+        // Camera handling
+        startCameraBtn.addEventListener('click', startCamera);
+        stopCameraBtn.addEventListener('click', stopCamera);
+        switchCameraBtn.addEventListener('click', switchCamera);
+
+        async function startCamera() {
+            if (state.scanning) return;
+            
+            try {
+                scanStatus.className = 'status info';
+                scanStatus.textContent = 'Accessing camera...';
+                
+                const constraints = { 
+                    video: { 
+                        facingMode: state.cameraFacingMode
+                    },
+                    audio: false 
+                };
+                
+                // If we have a specific camera ID to use
+                if (state.cameraId) {
+                    constraints.video = { deviceId: { exact: state.cameraId } };
+                }
+                
+                // Get camera stream
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                state.currentStream = stream;
+                state.videoTrack = stream.getVideoTracks()[0];
+                
+                // Display camera stream
+                qrVideo.srcObject = stream;
+                await qrVideo.play();
+                
+                // Enable scanning
+                state.scanning = true;
+                startCameraBtn.disabled = true;
+                stopCameraBtn.disabled = false;
+                
+                // Start scanning for QR codes
+                scanQRCode();
+                
+                scanStatus.className = 'status success';
+                scanStatus.textContent = 'Camera active. Scanning for QR codes...';
+                
+            } catch (error) {
+                console.error('Camera access error:', error);
+                scanStatus.className = 'status error';
+                scanStatus.textContent = `Error accessing camera: ${error.message}`;
+            }
+        }
+
+        function stopCamera() {
+            if (!state.scanning) return;
+            
+            // Stop video stream
+            if (state.currentStream) {
+                state.currentStream.getTracks().forEach(track => track.stop());
+                state.currentStream = null;
+                state.videoTrack = null;
+            }
+            
+            // Update UI
+            qrVideo.srcObject = null;
+            state.scanning = false;
+            startCameraBtn.disabled = false;
+            stopCameraBtn.disabled = true;
+            
+            scanStatus.className = 'status info';
+            scanStatus.textContent = 'Camera stopped. Press "Start Camera" to begin scanning.';
+        }
+
+        async function switchCamera() {
+            // If we're not scanning, just toggle the mode
+            if (!state.scanning) {
+                state.cameraFacingMode = state.cameraFacingMode === 'environment' ? 'user' : 'environment';
+                scanStatus.className = 'status info';
+                scanStatus.textContent = `Camera switched to ${state.cameraFacingMode === 'environment' ? 'back' : 'front'} camera. Press "Start Camera" to begin.`;
+                return;
+            }
+            
+            // Stop current camera
+            stopCamera();
+            
+            // Toggle camera mode
+            state.cameraFacingMode = state.cameraFacingMode === 'environment' ? 'user' : 'environment';
+            
+            // Restart with new camera
+            setTimeout(() => {
+                startCamera();
+            }, 500);
+        }
+
+        async function scanQRCode() {
+            if (!state.scanning) return;
+            
+            try {
+                // Set up canvas for capturing video frame
+                const videoWidth = qrVideo.videoWidth;
+                const videoHeight = qrVideo.videoHeight;
+                
+                qrCanvas.width = videoWidth;
+                qrCanvas.height = videoHeight;
+                
+                const context = qrCanvas.getContext('2d');
+                context.drawImage(qrVideo, 0, 0, videoWidth, videoHeight);
+                
+                // Get image data for QR code scanning
+                const imageData = context.getImageData(0, 0, videoWidth, videoHeight);
+                
+                // Scan for QR code
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert"
+                });
+                
+                if (code) {
+                    // We found a QR code
+                    console.log('QR code detected:', code.data);
+                    
+                    try {
+                        // Try to parse as JSON
+                        const connectionData = JSON.parse(code.data);
+                        
+                        // Check if it's valid connection data
+                        if (connectionData.id && connectionData.key && 
+                           (connectionData.offer || connectionData.answer)) {
+                            
+                            // Successfully found a valid QR code
+                            qrResult.style.display = 'block';
+                            qrResult.textContent = `Found valid Peared QR code! Connecting to ${connectionData.id}...`;
+                            
+                            // Stop scanning
+                            stopCamera();
+                            
+                            // Process the connection data
+                            processConnectionData(connectionData);
+                            
+                            // Don't request any more animation frames
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing QR code data:', e);
+                        // Continue scanning - it wasn't a valid QR code for our app
+                    }
+                }
+                
+                // Request next frame for scanning
+                requestAnimationFrame(scanQRCode);
+                
+            } catch (error) {
+                console.error('QR scanning error:', error);
+                scanStatus.className = 'status error';
+                scanStatus.textContent = `Scanning error: ${error.message}`;
+                
+                // Continue scanning despite error
+                setTimeout(() => {
+                    requestAnimationFrame(scanQRCode);
+                }, 1000);
+            }
+        }
+
+        // Process connection data from QR code or manual input
+        async function processConnectionData(connectionData) {
+            try {
+                if (!state.initialized) {
+                    throw new Error('Please initialize WebRTC first.');
+                }
+                
+                updateConnectionStatus('connecting');
+                
+                // Store peer information
+                state.otherPeerId = connectionData.id;
+                state.otherSecretKey = connectionData.key;
+                
+                // Determine which key to use (highest alphanumeric value)
+                const keysToCompare = [state.secretKey, state.otherSecretKey];
+                const sortedKeys = [...keysToCompare].sort();
+                state.selectedKey = sortedKeys[sortedKeys.length - 1];
+                
+                // Update UI
+                remotePeerIdDisplay.textContent = state.otherPeerId;
+                connectionDetails.style.display = 'block';
+                
+                // Process offer or create answer
+                if (connectionData.offer) {
+                    // They sent us an offer, create an answer
+                    const answerData = await processOffer(connectionData);
+                    
+                    // Since we're using QR codes, we need to show our answer QR code
+                    // for the other person to scan
+                    qrcodeDiv.innerHTML = '';
+                    
+                    // Generate QR code with the answer data
+                    const qrcode = new QRCode(qrcodeDiv, {
+                        text: JSON.stringify(answerData),
+                        width: 256,
+                        height: 256,
+                        colorDark: "#000000",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                    
+                    // Switch to show QR tab
+                    document.querySelector('[data-tab="show-qr-tab"]').click();
+                    
+                    qrStatus.className = 'status success';
+                    qrStatus.textContent = 'Answer created! Have the other person scan this QR code to complete the connection.';
+                    
+                } else if (connectionData.answer) {
+                    // They sent us an answer to our offer
+                    await processAnswer(connectionData);
+                    
+                    // Update QR code status
+                    qrStatus.className = 'status success';
+                    qrStatus.textContent = 'Connection established! You can now start chatting.';
+                }
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                scanStatus.className = 'status error';
+                scanStatus.textContent = `Connection error: ${error.message}`;
+                updateConnectionStatus('disconnected');
+            }
+        }
+
+        // Manual connection (fallback method)
+        connectBtn.addEventListener('click', async () => {
+            if (!state.initialized) {
+                connectStatus.className = 'status error';
+                connectStatus.textContent = 'Please initialize WebRTC first.';
+                return;
+            }
+            
+            const otherIdText = otherId.value.trim();
+            if (!otherIdText) {
+                connectStatus.className = 'status error';
+                connectStatus.textContent = 'Please enter a connection ID.';
+                return;
+            }
+            
+            try {
+                connectStatus.className = 'status info';
+                connectStatus.textContent = 'Connecting...';
+                
+                // Parse the connection string
+                const connectionData = JSON.parse(otherIdText);
+                
+                // Process connection data
+                await processConnectionData(connectionData);
+                
+                connectStatus.className = 'status success';
+                connectStatus.textContent = 'Connection process started!';
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                connectStatus.className = 'status error';
+                connectStatus.textContent = `Error: ${error.message}`;
             }
         });
 
@@ -542,37 +788,6 @@
                 // Wait for ICE gathering to complete
                 await waitForIceGathering();
                 
-                // If we still have no candidates at this point (which can happen with relay policy),
-                // we should add a fallback host candidate to allow the signaling to proceed
-                if (state.localIceCandidates.length === 0) {
-                    logDebug('No ICE candidates gathered. Adding fallback candidate...');
-                    
-                    // Extract username fragment from the SDP
-                    const ufrag = state.peerConnection.localDescription.sdp.match(/a=ice-ufrag:([^\r\n]+)/)?.[1] || 'fallback';
-                    
-                    // Create a fallback candidate (this won't establish a connection, but allows signaling)
-                    const fallbackCandidate = {
-                        candidate: `candidate:1 1 UDP 2122252543 127.0.0.1 10000 typ host ufrag ${ufrag}`,
-                        sdpMid: '0',
-                        sdpMLineIndex: 0,
-                        usernameFragment: ufrag
-                    };
-                    
-                    // Add to the list
-                    state.localIceCandidates.push(fallbackCandidate);
-                    updateIceCandidatesUI();
-                    logDebug('Added fallback candidate: ' + JSON.stringify(fallbackCandidate));
-                }
-                
-                // Store the offer
-                state.offerSdp = state.peerConnection.localDescription;
-                
-                // Log gathered ICE candidates for debugging
-                logDebug(`Gathered ${state.localIceCandidates.length} ICE candidates:`);
-                state.localIceCandidates.forEach((candidate, index) => {
-                    logDebug(`  ${index + 1}: ${candidate.candidate}`);
-                });
-                
                 // Create connection data
                 const connectionData = {
                     id: state.peerId,
@@ -580,9 +795,6 @@
                     offer: state.peerConnection.localDescription,
                     iceCandidates: state.localIceCandidates
                 };
-                
-                // Display connection data
-                connectionId.textContent = JSON.stringify(connectionData, null, 2);
                 
                 return connectionData;
             } catch (error) {
@@ -649,25 +861,11 @@
             try {
                 if (!candidate || !candidate.candidate) return;
                 
-                // Filter out candidates with mismatched usernames
-                const localUserName = state.peerConnection.localDescription?.sdp.match(/a=ice-ufrag:([^\r\n]+)/)?.[1];
-                const remoteUserName = state.peerConnection.remoteDescription?.sdp.match(/a=ice-ufrag:([^\r\n]+)/)?.[1];
-                
-                // Only process candidate if it matches the remote description's username fragment
-                if (candidate.usernameFragment && remoteUserName && 
-                    candidate.usernameFragment !== remoteUserName) {
-                    console.warn(`Skipping ICE candidate with mismatched username: ${candidate.usernameFragment} vs ${remoteUserName}`);
-                    return false;
-                }
-                
                 const iceCandidate = new RTCIceCandidate(candidate);
                 await state.peerConnection.addIceCandidate(iceCandidate);
                 
                 // Add to remote candidates list
                 state.remoteIceCandidates.push(candidate);
-                
-                // Update UI
-                updateRemoteCandidatesUI();
                 
                 return true;
             } catch (error) {
@@ -679,80 +877,35 @@
         // Wait for ICE gathering to complete
         function waitForIceGathering() {
             return new Promise((resolve) => {
-                logDebug('Waiting for ICE gathering to complete...');
-                
                 if (state.peerConnection.iceGatheringState === 'complete') {
-                    logDebug('ICE gathering already complete');
                     resolve();
                     return;
                 }
                 
                 // Maximum time to wait for ICE gathering
-                const MAX_ICE_GATHERING_TIMEOUT = 30000;
+                const MAX_ICE_GATHERING_TIMEOUT = 10000;
                 
                 // Set a timeout to resolve after maximum wait time
                 const timeout = setTimeout(() => {
-                    logDebug('ICE gathering timeout reached, proceeding anyway');
                     resolve();
                 }, MAX_ICE_GATHERING_TIMEOUT);
                 
-                // Set up a timer to periodically check for candidates even if no events fire
-                const candidateCheckInterval = setInterval(() => {
-                    // Print current number of candidates
-                    logDebug(`Current ICE candidates: ${state.localIceCandidates.length}`);
-                    
-                    // If we've gathered at least one candidate, or if gathering state is complete
-                    if (state.localIceCandidates.length > 0 || 
-                        state.peerConnection.iceGatheringState === 'complete') {
-                        clearInterval(candidateCheckInterval);
-                        clearTimeout(timeout);
-                        
-                        // Add a small delay to catch any last candidates
-                        setTimeout(resolve, 500);
-                    }
-                }, 1000);
-                
                 // Listen for iceGatheringState change to complete
                 const checkState = () => {
-                    logDebug(`ICE gathering state changed: ${state.peerConnection.iceGatheringState}`);
-                    
                     if (state.peerConnection.iceGatheringState === 'complete') {
                         state.peerConnection.removeEventListener('icegatheringstatechange', checkState);
-                        clearInterval(candidateCheckInterval);
                         clearTimeout(timeout);
-                        
-                        // Add a small delay to catch any last candidates
-                        setTimeout(resolve, 500);
+                        resolve();
                     }
                 };
                 
                 state.peerConnection.addEventListener('icegatheringstatechange', checkState);
                 
-                // If we have relay-only policy and no candidates after a short time,
-                // we may need to implement a fallback
+                // If we have candidates already, but gathering isn't complete, we might still proceed
+                // after a short delay to improve user experience
                 setTimeout(() => {
-                    if (state.localIceCandidates.length === 0 && 
-                        state.peerConnection.iceTransportPolicy === 'relay') {
-                        logDebug('No relay candidates found, adding fallback mechanism...');
-                        
-                        // Create an "empty" candidate just to allow the connection to proceed
-                        // This won't establish a connection by itself, but allows us to proceed
-                        // with the signaling flow and potentially recover later
-                        const emptyCandidateUfrag = state.peerConnection.localDescription.sdp.match(/a=ice-ufrag:([^\r\n]+)/)?.[1] || 'fallback';
-                        
-                        const fallbackCandidate = {
-                            candidate: `candidate:0 1 UDP 2122252543 127.0.0.1 49152 typ host ufrag ${emptyCandidateUfrag}`,
-                            sdpMid: '0',
-                            sdpMLineIndex: 0,
-                            usernameFragment: emptyCandidateUfrag
-                        };
-                        
-                        // Log the fallback candidate
-                        logDebug('Adding fallback candidate: ' + JSON.stringify(fallbackCandidate));
-                        
-                        // Add to candidates list
-                        state.localIceCandidates.push(fallbackCandidate);
-                        updateIceCandidatesUI();
+                    if (state.localIceCandidates.length > 0) {
+                        resolve();
                     }
                 }, 3000);
             });
@@ -766,67 +919,9 @@
                     // Store the ICE candidate
                     state.localIceCandidates.push(event.candidate);
                     
-                    // Update ICE candidates UI
-                    updateIceCandidatesUI();
-                    
-                    // Update the connection data display
-                    if (state.initiator) {
-                        const connectionData = {
-                            id: state.peerId,
-                            key: state.secretKey,
-                            offer: state.peerConnection.localDescription,
-                            iceCandidates: state.localIceCandidates
-                        };
-                        connectionId.textContent = JSON.stringify(connectionData, null, 2);
-                    }
-                    
-                    // Log candidate details
-                    logDebug(`New ICE candidate: ${event.candidate.candidate}`);
-                    
-                    // Check candidate type (host, srflx, relay) for debugging
-                    const candidateType = event.candidate.candidate.split(' ')[7]; // 'typ X'
-                    logDebug(`Candidate type: ${candidateType}`);
-                    
-                    // If this is a relay candidate, log the related address
-                    if (candidateType === 'relay') {
-                        const relatedInfo = event.candidate.candidate.match(/raddr ([^ ]+) rport ([0-9]+)/);
-                        if (relatedInfo) {
-                            logDebug(`Relay candidate related address: ${relatedInfo[1]}:${relatedInfo[2]}`);
-                        }
-                    }
-                } else {
-                    // null candidate means ICE gathering is complete
-                    logDebug('ICE gathering complete (received null candidate)');
-                }
-            });
-            
-            // If candidates don't appear, log the PC object for troubleshooting
-            setTimeout(() => {
-                if (state.localIceCandidates.length === 0) {
-                    logDebug('No ICE candidates gathered after timeout. Checking configuration:');
-                    logDebug(`iceTransportPolicy: ${state.peerConnection.getConfiguration().iceTransportPolicy}`);
-                    logDebug(`ICE gathering state: ${state.peerConnection.iceGatheringState}`);
-                    logDebug(`Signaling state: ${state.peerConnection.signalingState}`);
-                    logDebug(`Connection state: ${state.peerConnection.connectionState}`);
-                    
-                    // Try to access URLs to see if we can connect to the TURN servers
-                    logDebug('Testing TURN server connectivity...');
-                    testTurnServers();
-                }
-            }, 5000);
-            
-            // ICE gathering state change
-            state.peerConnection.addEventListener('icegatheringstatechange', () => {
-                const iceState = state.peerConnection.iceGatheringState;
-                logDebug(`ICE gathering state changed: ${iceState}`);
-                
-                if (iceState === 'complete') {
-                    logDebug(`ICE gathering complete with ${state.localIceCandidates.length} candidates`);
-                    
-                    // If we're in relay mode but have no candidates, that's a problem
-                    if (state.localIceCandidates.length === 0 && 
-                        state.peerConnection.getConfiguration().iceTransportPolicy === 'relay') {
-                        logDebug('WARNING: No relay candidates found despite relay-only policy');
+                    // Update the QR code with new candidate
+                    if (state.localIceCandidates.length % 3 === 0) {
+                        generateQRCode();
                     }
                 }
             });
@@ -834,34 +929,30 @@
             // ICE connection state change
             state.peerConnection.addEventListener('iceconnectionstatechange', () => {
                 const iceState = state.peerConnection.iceConnectionState;
-                logDebug(`ICE connection state changed: ${iceState}`);
-                
-                // Update WebRTC status display
-                webrtcStatusDisplay.textContent = `ICE: ${iceState}`;
                 
                 if (iceState === 'connected' || iceState === 'completed') {
                     updateConnectionStatus('connected');
                     chatCard.style.display = 'block';
                     addMessage('WebRTC connection established. You can now chat securely.', 'system');
                     
-                    // Log selected candidate pair
-                    getSelectedCandidatePair();
-                    
                 } else if (iceState === 'failed') {
                     // Try reconnection with TURN
-                    logDebug('ICE connection failed. Switching to forced TURN relay mode...');
                     addMessage('Direct connection failed. Trying to connect through relay server...', 'system');
                     
                     // Set ICE transport policy to relay-only to force TURN usage
-                    setIceTransportPolicy('relay');
-                    restartIce();
+                    const configuration = state.peerConnection.getConfiguration();
+                    configuration.iceTransportPolicy = 'relay';
+                    state.peerConnection.setConfiguration(configuration);
+                    
+                    // Restart ICE if we're the initiator
+                    if (state.initiator) {
+                        restartIce();
+                    }
                     
                 } else if (iceState === 'disconnected') {
-                    logDebug('ICE connection disconnected. Will try to recover...');
                     // Wait a bit to see if it self-recovers
                     setTimeout(() => {
                         if (state.peerConnection.iceConnectionState === 'disconnected') {
-                            logDebug('Connection still disconnected. Attempting ICE restart...');
                             restartIce();
                         }
                     }, 5000);
@@ -869,26 +960,16 @@
                 } else if (iceState === 'closed') {
                     updateConnectionStatus('disconnected');
                     addMessage('WebRTC connection closed. Please reconnect.', 'system');
-                    logDebug('ICE connection closed.');
                 }
-            });
-            
-            // Signaling state change
-            state.peerConnection.addEventListener('signalingstatechange', () => {
-                logDebug(`Signaling state changed: ${state.peerConnection.signalingState}`);
             });
             
             // Connection state change
             state.peerConnection.addEventListener('connectionstatechange', () => {
                 const connState = state.peerConnection.connectionState;
-                logDebug(`Connection state changed: ${connState}`);
                 
                 if (connState === 'connected') {
                     updateConnectionStatus('connected');
-                    connectionDetailsContainer.style.display = 'block';
-                    
-                    // Get connection stats
-                    getConnectionStats();
+                    connectionDetails.style.display = 'block';
                     
                 } else if (connState === 'disconnected' || connState === 'failed' || connState === 'closed') {
                     updateConnectionStatus('disconnected');
@@ -899,69 +980,7 @@
             state.peerConnection.addEventListener('datachannel', (event) => {
                 // Receive the data channel
                 state.dataChannel = event.channel;
-                logDebug(`Received data channel: ${state.dataChannel.label}`);
                 setupDataChannelHandlers(state.dataChannel);
-            });
-        }
-        
-        // Function to test TURN server connectivity
-        function testTurnServers() {
-            // Get turn server configurations
-            const config = state.peerConnection.getConfiguration();
-            const turnServers = config.iceServers.filter(server => 
-                server.urls.some(url => url.startsWith('turn:') || url.startsWith('turns:'))
-            );
-            
-            logDebug(`Testing ${turnServers.length} TURN servers...`);
-            
-            // For each TURN server, create a test connection
-            turnServers.forEach((server, index) => {
-                // Log server we're testing
-                const urls = Array.isArray(server.urls) ? server.urls.join(', ') : server.urls;
-                logDebug(`TURN server ${index+1}: ${urls}`);
-                
-                // Create a temporary RTCPeerConnection just to test this TURN server
-                const testPC = new RTCPeerConnection({
-                    iceServers: [server],
-                    iceTransportPolicy: 'relay'
-                });
-                
-                // Create data channel to trigger ICE gathering
-                const dc = testPC.createDataChannel('test');
-                
-                // Count candidates from this server
-                let candidateCount = 0;
-                
-                // Listen for ICE candidates
-                testPC.onicecandidate = (e) => {
-                    if (e.candidate) {
-                        candidateCount++;
-                        logDebug(`TURN server ${index+1} candidate: ${e.candidate.candidate}`);
-                    }
-                };
-                
-                // Create offer to start ICE gathering
-                testPC.createOffer().then(offer => {
-                    return testPC.setLocalDescription(offer);
-                }).catch(err => {
-                    logDebug(`TURN server ${index+1} error: ${err.message}`);
-                });
-                
-                // Check results after a timeout
-                setTimeout(() => {
-                    logDebug(`TURN server ${index+1} result: ${candidateCount} candidates`);
-                    
-                    // If this server worked, suggest using it
-                    if (candidateCount > 0) {
-                        logDebug(`TURN server ${index+1} is WORKING - consider using this one`);
-                    } else {
-                        logDebug(`TURN server ${index+1} - NO candidates found`);
-                    }
-                    
-                    // Clean up test connection
-                    dc.close();
-                    testPC.close();
-                }, 5000);
             });
         }
 
@@ -1005,335 +1024,39 @@
             });
         }
 
-        // Copy connection ID to clipboard
-        copyBtn.addEventListener('click', () => {
+        // Restart ICE connection if it fails
+        function restartIce() {
+            if (!state.peerConnection || !state.initiator) return;
+            
             try {
-                // Try the newer Clipboard API first
-                navigator.clipboard.writeText(connectionId.textContent)
-                    .then(() => {
-                        copyStatus.className = 'status success';
-                        copyStatus.textContent = 'Copied to clipboard!';
-                        setTimeout(() => {
-                            copyStatus.textContent = '';
-                        }, 2000);
+                // Create an ICE restart offer
+                state.peerConnection.createOffer({ iceRestart: true })
+                    .then((offer) => {
+                        return state.peerConnection.setLocalDescription(offer);
                     })
-                    .catch(err => {
-                        // If that fails, use the fallback method
-                        fallbackCopyTextToClipboard(connectionId.textContent);
+                    .then(() => {
+                        addMessage('Connection is being reestablished...', 'system');
+                        
+                        // Reset ICE candidate lists
+                        state.localIceCandidates = [];
+                        
+                        // Update QR code with new offer
+                        setTimeout(() => {
+                            generateQRCode();
+                            
+                            // Update UI to show new QR code
+                            document.querySelector('[data-tab="show-qr-tab"]').click();
+                            qrStatus.className = 'status warning';
+                            qrStatus.textContent = 'Connection failed. Have the other person scan this new QR code.';
+                        }, 1000);
+                    })
+                    .catch((error) => {
+                        console.error('Error creating ICE restart offer:', error);
                     });
-            } catch (err) {
-                // Use fallback for browsers that don't support clipboard API
-                fallbackCopyTextToClipboard(connectionId.textContent);
-            }
-        });
-        
-        // Fallback copy method for environments where Clipboard API is restricted
-        function fallbackCopyTextToClipboard(text) {
-            try {
-                // Create temporary textarea
-                const textArea = document.createElement("textarea");
-                textArea.value = text;
-                
-                // Set styles to make it invisible
-                textArea.style.position = "fixed";
-                textArea.style.top = "0";
-                textArea.style.left = "0";
-                textArea.style.width = "2em";
-                textArea.style.height = "2em";
-                textArea.style.padding = "0";
-                textArea.style.border = "none";
-                textArea.style.outline = "none";
-                textArea.style.boxShadow = "none";
-                textArea.style.background = "transparent";
-                
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                
-                try {
-                    const successful = document.execCommand('copy');
-                    if (successful) {
-                        copyStatus.className = 'status success';
-                        copyStatus.textContent = 'Copied to clipboard!';
-                    } else {
-                        copyStatus.className = 'status error';
-                        copyStatus.textContent = 'Could not copy automatically. Please press Ctrl+C to copy.';
-                        // Select the text again for the user to manually copy
-                        connectionId.focus();
-                        connectionId.select();
-                    }
-                } catch (err) {
-                    copyStatus.className = 'status error';
-                    copyStatus.textContent = 'Please select the text and copy manually (Ctrl+C).';
-                    // Help user by selecting the text
-                    connectionId.focus();
-                    connectionId.select();
-                }
-                
-                document.body.removeChild(textArea);
-                
-                setTimeout(() => {
-                    copyStatus.textContent = '';
-                }, 2000);
-            } catch (err) {
-                copyStatus.className = 'status error';
-                copyStatus.textContent = 'Please select the text and copy manually.';
+            } catch (error) {
+                console.error('Error restarting ICE:', error);
             }
         }
-
-        // Connect to another peer
-        connectBtn.addEventListener('click', async () => {
-            if (!state.initialized) {
-                connectStatus.className = 'status error';
-                connectStatus.textContent = 'Please initialize WebRTC first.';
-                return;
-            }
-            
-            const otherIdText = otherId.value.trim();
-            if (!otherIdText) {
-                connectStatus.className = 'status error';
-                connectStatus.textContent = 'Please enter a connection ID.';
-                return;
-            }
-            
-            try {
-                connectStatus.className = 'status info';
-                connectStatus.textContent = 'Connecting...';
-                updateConnectionStatus('connecting');
-                
-                // Parse the connection string
-                const connectionData = JSON.parse(otherIdText);
-                
-                // Check if required fields are present
-                if (!connectionData.id || !connectionData.key) {
-                    throw new Error('Invalid connection data format - missing required fields (id or key)');
-                }
-                
-                state.otherPeerId = connectionData.id;
-                state.otherSecretKey = connectionData.key;
-                
-                // Support multiple WebRTC data formats
-                // Format 1: Using webrtcHandshake object
-                if (connectionData.webrtcHandshake) {
-                    state.otherWebrtcHandshake = connectionData.webrtcHandshake;
-                } 
-                // Format 2: Using separate offer/answer and iceCandidates fields
-                else if ((connectionData.offer || connectionData.answer) && connectionData.iceCandidates) {
-                    state.otherWebrtcHandshake = {
-                        sdp: connectionData.offer || connectionData.answer,
-                        iceCandidates: connectionData.iceCandidates
-                    };
-                }
-                // If neither format is present, create a default
-                else {
-                    console.warn('No WebRTC handshake data found, creating default');
-                    state.otherWebrtcHandshake = {
-                        sdp: {
-                            type: "answer",
-                            sdp: "v=0\r\no=- " + Math.floor(Date.now() / 1000) + " 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
-                        },
-                        iceCandidates: []
-                    };
-                }
-                
-                // Determine which key to use (highest alphanumeric value)
-                const keysToCompare = [state.secretKey, state.otherSecretKey];
-                const sortedKeys = [...keysToCompare].sort();
-                state.selectedKey = sortedKeys[sortedKeys.length - 1];
-                
-                // Update remote peer display
-                remotePeerIdDisplay.textContent = state.otherPeerId;
-                connectionDetailsContainer.style.display = 'block';
-                
-                // Process the offer and create answer
-                const answerData = await processOffer(connectionData);
-                
-                // Display the answer
-                connectStatus.className = 'status success';
-                connectStatus.textContent = 'Answer created! Share this with the initiator:';
-                
-                // Show the answer in a new textarea
-                const answerTextArea = document.createElement('textarea');
-                answerTextArea.readOnly = true;
-                answerTextArea.value = JSON.stringify(answerData, null, 2);
-                answerTextArea.style.marginTop = '10px';
-                answerTextArea.style.height = '200px';
-                
-                // Add a copy button for the answer
-                const copyAnswerBtn = document.createElement('button');
-                copyAnswerBtn.textContent = 'Copy Answer';
-                copyAnswerBtn.className = 'btn';
-                copyAnswerBtn.addEventListener('click', () => {
-                    answerTextArea.select();
-                    document.execCommand('copy');
-                    copyAnswerBtn.textContent = 'Copied!';
-                    setTimeout(() => {
-                        copyAnswerBtn.textContent = 'Copy Answer';
-                    }, 2000);
-                });
-                
-                // Clear previous answer display
-                const prevAnswerDisplay = document.getElementById('answer-display');
-                if (prevAnswerDisplay) {
-                    prevAnswerDisplay.remove();
-                }
-                
-                // Create a container for the answer display
-                const answerDisplay = document.createElement('div');
-                answerDisplay.id = 'answer-display';
-                answerDisplay.appendChild(answerTextArea);
-                answerDisplay.appendChild(copyAnswerBtn);
-                
-                // Add to the connect status
-                connectStatus.parentNode.appendChild(answerDisplay);
-                
-            } catch (error) {
-                console.error('Connection error:', error);
-                connectStatus.className = 'status error';
-                connectStatus.textContent = `Error: ${error.message}`;
-                updateConnectionStatus('disconnected');
-            }
-        });
-
-        // Process answer button for initiator
-        processAnswerBtn.addEventListener('click', async () => {
-            if (!state.initialized || !state.initiator) {
-                answerStatus.className = 'status error';
-                answerStatus.textContent = 'You must initialize as the connection initiator first.';
-                return;
-            }
-            
-            const answerText = answerData.value.trim();
-            if (!answerText) {
-                answerStatus.className = 'status error';
-                answerStatus.textContent = 'Please enter the answer data.';
-                return;
-            }
-            
-            try {
-                answerStatus.className = 'status info';
-                answerStatus.textContent = 'Processing answer...';
-                updateConnectionStatus('connecting');
-                
-                // Parse the answer data
-                const connectionData = JSON.parse(answerText);
-                
-                // Check if required fields are present
-                if (!connectionData.id || !connectionData.key || 
-                    ((!connectionData.answer && !connectionData.offer) || !connectionData.iceCandidates)) {
-                    throw new Error('Invalid answer data format - missing required fields');
-                }
-                
-                state.otherPeerId = connectionData.id;
-                state.otherSecretKey = connectionData.key;
-                
-                // Determine which key to use (highest alphanumeric value)
-                const keysToCompare = [state.secretKey, state.otherSecretKey];
-                const sortedKeys = [...keysToCompare].sort();
-                state.selectedKey = sortedKeys[sortedKeys.length - 1];
-                
-                // Update remote peer display
-                remotePeerIdDisplay.textContent = state.otherPeerId;
-                connectionDetailsContainer.style.display = 'block';
-                
-                // Process the answer or offer
-                if (connectionData.answer) {
-                    // It's an answer - set remote description directly
-                    const answerDesc = new RTCSessionDescription(connectionData.answer);
-                    await state.peerConnection.setRemoteDescription(answerDesc);
-                } else if (connectionData.offer) {
-                    // It's another offer - we need to treat this as an offer
-                    // and create an answer
-                    console.log('Received an offer instead of an answer. Processing as offer...');
-                    
-                    // Create a new peer connection if needed
-                    if (!state.peerConnection || state.peerConnection.signalingState === 'closed') {
-                        const configuration = {
-                            iceServers: [
-                                { urls: 'stun:stun.l.google.com:19302' },
-                                { urls: 'stun:stun1.l.google.com:19302' }
-                            ]
-                        };
-                        state.peerConnection = new RTCPeerConnection(configuration);
-                        setupPeerConnectionHandlers();
-                    }
-                    
-                    // Set the offer as remote description
-                    const offerDesc = new RTCSessionDescription(connectionData.offer);
-                    await state.peerConnection.setRemoteDescription(offerDesc);
-                    
-                    // Create an answer
-                    const answer = await state.peerConnection.createAnswer();
-                    await state.peerConnection.setLocalDescription(answer);
-                    
-                    // Wait for ICE gathering
-                    await waitForIceGathering();
-                    
-                    // Display the answer
-                    const fullAnswerData = {
-                        id: state.peerId,
-                        key: state.secretKey,
-                        answer: state.peerConnection.localDescription,
-                        iceCandidates: state.localIceCandidates
-                    };
-                    
-                    // Show the answer
-                    answerStatus.textContent = 'Created answer! Share this with the other peer:';
-                    
-                    // Show the answer in a textarea
-                    const answerTextArea = document.createElement('textarea');
-                    answerTextArea.readOnly = true;
-                    answerTextArea.value = JSON.stringify(fullAnswerData, null, 2);
-                    answerTextArea.style.marginTop = '10px';
-                    answerTextArea.style.height = '200px';
-                    
-                    // Add a copy button for the answer
-                    const copyAnswerBtn = document.createElement('button');
-                    copyAnswerBtn.textContent = 'Copy Answer';
-                    copyAnswerBtn.className = 'btn';
-                    copyAnswerBtn.addEventListener('click', () => {
-                        answerTextArea.select();
-                        document.execCommand('copy');
-                        copyAnswerBtn.textContent = 'Copied!';
-                        setTimeout(() => {
-                            copyAnswerBtn.textContent = 'Copy Answer';
-                        }, 2000);
-                    });
-                    
-                    // Clear previous answer display
-                    const prevAnswerDisplay = document.getElementById('answer-reply-display');
-                    if (prevAnswerDisplay) {
-                        prevAnswerDisplay.remove();
-                    }
-                    
-                    // Create a container for the answer display
-                    const answerDisplay = document.createElement('div');
-                    answerDisplay.id = 'answer-reply-display';
-                    answerDisplay.appendChild(answerTextArea);
-                    answerDisplay.appendChild(copyAnswerBtn);
-                    
-                    // Add to the answer status
-                    answerStatus.parentNode.appendChild(answerDisplay);
-                    
-                    // We don't need to do any more processing here - just wait for connection
-                    return;
-                }
-                
-                // Add ICE candidates
-                for (const candidate of connectionData.iceCandidates) {
-                    await addRemoteIceCandidate(candidate);
-                }
-                
-                answerStatus.className = 'status success';
-                answerStatus.textContent = 'Answer processed successfully! Waiting for connection...';
-                
-            } catch (error) {
-                console.error('Error processing answer:', error);
-                answerStatus.className = 'status error';
-                answerStatus.textContent = `Error processing answer: ${error.message}. Data: ${answerText}`;
-                updateConnectionStatus('disconnected');
-            }
-        });
 
         // Send message
         sendBtn.addEventListener('click', sendMessage);
@@ -1415,30 +1138,6 @@
             }
         }
 
-        // Update ICE candidates UI
-        function updateIceCandidatesUI() {
-            iceCandidatesList.innerHTML = '';
-            
-            for (let i = 0; i < state.localIceCandidates.length; i++) {
-                const candidate = state.localIceCandidates[i];
-                const candidateElement = document.createElement('div');
-                candidateElement.textContent = `${i + 1}: ${candidate.candidate ? candidate.candidate.substring(0, 50) + '...' : 'null'}`;
-                iceCandidatesList.appendChild(candidateElement);
-            }
-        }
-
-        // Update remote candidates UI
-        function updateRemoteCandidatesUI() {
-            remoteCandidatesList.innerHTML = '';
-            
-            for (let i = 0; i < state.remoteIceCandidates.length; i++) {
-                const candidate = state.remoteIceCandidates[i];
-                const candidateElement = document.createElement('div');
-                candidateElement.textContent = `${i + 1}: ${candidate.candidate ? candidate.candidate.substring(0, 50) + '...' : 'null'}`;
-                remoteCandidatesList.appendChild(candidateElement);
-            }
-        }
-
         // Helper functions for ID and key generation
         function generateRandomId() {
             return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -1449,177 +1148,6 @@
             const keyArray = new Uint8Array(32);
             window.crypto.getRandomValues(keyArray);
             return Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-
-        // Get connection statistics
-        function getConnectionStats() {
-            if (!state.peerConnection) return;
-            
-            try {
-                state.peerConnection.getStats().then(stats => {
-                    let statsOutput = '';
-                    let candidatePairFound = false;
-                    
-                    stats.forEach(report => {
-                        if (report.type === 'transport') {
-                            statsOutput += `Transport: bytes sent=${report.bytesSent}, bytes received=${report.bytesReceived}\n`;
-                        }
-                        
-                        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-                            candidatePairFound = true;
-                            statsOutput += `Active candidate pair: local=${report.localCandidateId}, remote=${report.remoteCandidateId}\n`;
-                            statsOutput += `  RTT: ${report.currentRoundTripTime * 1000}ms\n`;
-                            
-                            // Check if using relay
-                            if (report.relayProtocol) {
-                                statsOutput += `  Using relay: ${report.relayProtocol}\n`;
-                            }
-                        }
-                    });
-                    
-                    if (!candidatePairFound) {
-                        statsOutput += 'No active candidate pair found.\n';
-                    }
-                    
-                    logDebug('Connection stats: ' + statsOutput);
-                });
-            } catch (e) {
-                logDebug('Error getting stats: ' + e.message);
-            }
-        }
-        
-        // Get selected candidate pair
-        function getSelectedCandidatePair() {
-            if (!state.peerConnection) return;
-            
-            try {
-                state.peerConnection.getStats().then(stats => {
-                    let localCandidateId = null;
-                    let remoteCandidateId = null;
-                    
-                    // Find the active candidate pair
-                    stats.forEach(report => {
-                        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-                            localCandidateId = report.localCandidateId;
-                            remoteCandidateId = report.remoteCandidateId;
-                            
-                            logDebug(`Selected candidate pair: local=${report.localCandidateId}, remote=${report.remoteCandidateId}`);
-                            
-                            // Check if this is a relay connection
-                            if (report.relayProtocol) {
-                                logDebug(`Connection using relay protocol: ${report.relayProtocol}`);
-                            }
-                        }
-                    });
-                    
-                    // Find details about the local candidate
-                    if (localCandidateId) {
-                        stats.forEach(report => {
-                            if (report.id === localCandidateId) {
-                                logDebug(`Local candidate: ${report.candidateType}, ${report.protocol}, ${report.ip}:${report.port}`);
-                                
-                                // If we're using a relay, this will give us additional info
-                                if (report.candidateType === 'relay') {
-                                    logDebug(`Relay info: ${report.relayProtocol}, ${report.relatedAddress}:${report.relatedPort}`);
-                                }
-                            }
-                        });
-                    }
-                    
-                    // Find details about the remote candidate
-                    if (remoteCandidateId) {
-                        stats.forEach(report => {
-                            if (report.id === remoteCandidateId) {
-                                logDebug(`Remote candidate: ${report.candidateType}, ${report.protocol}, ${report.ip}:${report.port}`);
-                            }
-                        });
-                    }
-                });
-            } catch (e) {
-                logDebug('Error getting selected candidate pair: ' + e.message);
-            }
-        }
-
-        // Add this function to restart ICE if connection fails
-        function restartIce() {
-            if (!state.peerConnection) return;
-            
-            try {
-                // Create an ICE restart offer
-                if (state.initiator && state.peerConnection.signalingState !== 'closed') {
-                    console.log('Restarting ICE connection...');
-                    
-                    // Create data channel if it doesn't exist
-                    if (!state.dataChannel || state.dataChannel.readyState === 'closed') {
-                        state.dataChannel = state.peerConnection.createDataChannel('peared-channel');
-                        setupDataChannelHandlers(state.dataChannel);
-                    }
-                    
-                    // Create ICE restart offer
-                    state.peerConnection.createOffer({ iceRestart: true })
-                        .then((offer) => {
-                            return state.peerConnection.setLocalDescription(offer);
-                        })
-                        .then(() => {
-                            console.log('ICE restart offer created and set as local description');
-                            addMessage('Connection is being reestablished with relay servers...', 'system');
-                            
-                            // Reset ICE candidate lists
-                            state.localIceCandidates = [];
-                            updateIceCandidatesUI();
-                        })
-                        .catch((error) => {
-                            console.error('Error creating ICE restart offer:', error);
-                        });
-                }
-            } catch (error) {
-                console.error('Error restarting ICE:', error);
-            }
-        }
-        
-        // Add this function to set specific ICE transport policy
-        function setIceTransportPolicy(policy) {
-            try {
-                // Save current state
-                const currentSignalingState = state.peerConnection?.signalingState;
-                const currentRemoteDescription = state.peerConnection?.remoteDescription;
-                const hadDataChannel = !!state.dataChannel;
-                
-                // Create new configuration with specified policy
-                const configuration = {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { 
-                            urls: [
-                                'turn:openrelay.metered.ca:80',
-                                'turn:openrelay.metered.ca:443',
-                                'turn:openrelay.metered.ca:443?transport=tcp'
-                            ],
-                            username: 'openrelayproject',
-                            credential: 'openrelayproject'
-                        }
-                    ],
-                    iceTransportPolicy: policy, // 'all' or 'relay'
-                    iceCandidatePoolSize: 10,
-                    rtcpMuxPolicy: 'require'
-                };
-                
-                // Apply new configuration
-                state.peerConnection?.setConfiguration(configuration);
-                
-                console.log(`ICE transport policy set to: ${policy}`);
-                
-                // If we were the initiator and had a data channel, try restarting the connection
-                if (state.initiator && hadDataChannel && currentSignalingState !== 'closed') {
-                    restartIce();
-                }
-                
-                return true;
-            } catch (error) {
-                console.error(`Error setting ICE transport policy to ${policy}:`, error);
-                return false;
-            }
         }
 
         // Encryption/decryption functions
@@ -1682,6 +1210,28 @@
         function bytesToHex(bytes) {
             return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
         }
+
+        // Check for WebRTC and camera support
+        function checkSupport() {
+            // Check for WebRTC support
+            if (!navigator.mediaDevices || !window.RTCPeerConnection) {
+                alert("Your browser doesn't support WebRTC. Please use Chrome, Firefox, Safari, or Edge.");
+                return false;
+            }
+            
+            // Check for camera support
+            if (!navigator.mediaDevices.getUserMedia) {
+                switchCameraBtn.disabled = true;
+                startCameraBtn.disabled = true;
+                scanStatus.className = 'status error';
+                scanStatus.textContent = "Your browser doesn't support camera access. You can still use manual connection.";
+            }
+            
+            return true;
+        }
+
+        // Initialize the app
+        checkSupport();
     </script>
 </body>
 </html>
