@@ -812,7 +812,7 @@
                 // Detect mobile devices - mobile browsers may need special handling
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
                 
-                if (isMobile) {
+                if (1==2) { // Temp: isMobile
                     logDebug('Mobile device detected, using canvas-based QR code generation');
                     // Try canvas-based QR generation which is more reliable on mobile
                     generateCanvasQRCode(qrPlaceholder, compactJson, 256);
