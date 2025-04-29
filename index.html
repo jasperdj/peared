@@ -6,7 +6,7 @@
     <title>Peared - P2P Messaging</title>
     <!-- QR Code libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -283,9 +283,6 @@
         </div>
         
         <div id="scan-qr-tab" class="tab-content">
-            <div id="qr-scanning-status" class="status info" style="margin-bottom: 20px;">
-                Checking QR code scanning availability...
-            </div>
             <p>Scan the QR code from the other person:</p>
             <div id="video-container">
                 <div class="scan-region-highlight-bg"></div>
@@ -297,14 +294,9 @@
                 <button id="start-camera-btn">Start Camera</button>
                 <button id="stop-camera-btn" disabled>Stop Camera</button>
                 <button id="switch-camera-btn">Switch Camera</button>
-                <button id="capture-qr-btn" disabled>Capture Image</button>
             </div>
             <div id="scan-status" class="status info">Press "Start Camera" to begin scanning.</div>
             <div id="qr-result" class="status success"></div>
-            
-            <div class="status info" style="margin-top: 20px;">
-                <strong>Tip:</strong> If scanning doesn't work, use the "Capture Image" button and switch to manual mode.
-            </div>
         </div>
         
         <div id="manual-tab" class="tab-content">
@@ -353,7 +345,6 @@
             qrCodeGenerated: false,
             debugLog: [] // For storing debug messages
         };
-
         // Add debug panel to the UI
         function addDebugPanel() {
             const debugPanel = document.createElement('div');
@@ -427,7 +418,6 @@
                 debugPanel.removeChild(debugPanel.firstChild);
             }
         }
-
         // Capture global errors
         window.onerror = function(message, source, lineno, colno, error) {
             logDebug(`ERROR: ${message} at ${source}:${lineno}:${colno}`);
@@ -436,7 +426,6 @@
             }
             return false; // Let default error handling continue
         };
-
         // DOM elements
         const initBtn = document.getElementById('init-btn');
         const initStatus = document.getElementById('init-status');
@@ -463,7 +452,6 @@
         const sendBtn = document.getElementById('send-btn');
         const forceTurnCheckbox = document.getElementById('force-turn');
         const turnServerSelector = document.getElementById('turn-server');
-
         // Tab navigation
         document.querySelectorAll('.tabs').forEach(tabSet => {
             tabSet.querySelectorAll('.tab').forEach(tab => {
@@ -484,7 +472,6 @@
                     // Show corresponding content
                     const tabId = tab.getAttribute('data-tab');
                     document.getElementById(tabId).classList.add('active');
-
                     // If switching to scan tab, handle camera permissions
                     if (tabId === 'scan-qr-tab' && !state.scanning) {
                         scanStatus.className = 'status info';
@@ -493,7 +480,6 @@
                 });
             });
         });
-
         // Copy connection string button
         document.getElementById('copy-connection-btn')?.addEventListener('click', function() {
             const connectionString = document.getElementById('connection-string');
@@ -504,7 +490,6 @@
                 this.textContent = 'Copy Connection String';
             }, 2000);
         });
-
         // Initialize peer
         initBtn.addEventListener('click', async () => {
             try {
@@ -624,7 +609,6 @@
                 initStatus.textContent = `Error: ${error.message}`;
             }
         });
-
         // Generate QR code from connection data
         function generateQRCode() {
             logDebug('Generating QR code...');
@@ -870,12 +854,10 @@
                 logDebug(`Error creating fallback visual: ${fallbackError.message}`);
             }
         }
-
         // Camera handling
         startCameraBtn.addEventListener('click', startCamera);
         stopCameraBtn.addEventListener('click', stopCamera);
         switchCameraBtn.addEventListener('click', switchCamera);
-
         async function startCamera() {
             if (state.scanning) return;
             
@@ -884,9 +866,11 @@
                 scanStatus.textContent = 'Accessing camera...';
                 logDebug('Attempting to access camera');
                 
-                // Check if jsQR is available
-                const jsQrAvailable = typeof jsQR === 'function';
-                logDebug('jsQR available: ' + jsQrAvailable);
+                // Check if jsQR global function exists (it should now with our fallback)
+                if (typeof jsQR !== 'function') {
+                    logDebug('jsQR still not defined even with fallback - serious issue');
+                    throw new Error('QR scanning function unavailable');
+                }
                 
                 const constraints = { 
                     video: { 
@@ -912,23 +896,23 @@
                 await qrVideo.play();
                 logDebug('Camera stream started');
                 
-                // Enable buttons
+                // Enable scanning
                 state.scanning = true;
                 startCameraBtn.disabled = true;
                 stopCameraBtn.disabled = false;
-                document.getElementById('capture-qr-btn').disabled = false;
                 
-                if (jsQrAvailable) {
-                    // Start QR code scanning
-                    logDebug('Starting automatic QR code scanning');
-                    scanQRCode();
-                    scanStatus.className = 'status success';
-                    scanStatus.textContent = 'Camera active. Looking for QR codes...';
-                } else {
-                    // Just use camera for manual capture
-                    scanStatus.className = 'status warning';
-                    scanStatus.textContent = 'Automatic scanning unavailable. Use Capture Image button.';
-                }
+                // Start scanning for QR codes
+                logDebug('Starting QR code scanning with our implementation');
+                scanQRCode();
+                
+                scanStatus.className = 'status success';
+                scanStatus.textContent = 'Camera active. Scanning for QR codes...';
+                
+                // Show warning that we're using basic detection
+                setTimeout(() => {
+                    scanStatus.className = 'status info';
+                    scanStatus.textContent = 'Scanning for QR codes (basic detection). Hold QR code steady in frame.';
+                }, 3000);
                 
             } catch (error) {
                 console.error('Camera access error:', error);
@@ -954,33 +938,8 @@
                 state.scanning = false;
                 startCameraBtn.disabled = false;
                 stopCameraBtn.disabled = true;
-                document.getElementById('capture-qr-btn').disabled = true;
             }
         }
-        
-        // Switch camera between front and back
-        document.getElementById('switch-camera-btn').addEventListener('click', async function() {
-            if (!state.scanning) {
-                // Just change the mode
-                state.cameraFacingMode = state.cameraFacingMode === 'environment' ? 'user' : 'environment';
-                scanStatus.className = 'status info';
-                scanStatus.textContent = `Switched to ${state.cameraFacingMode === 'environment' ? 'back' : 'front'} camera`;
-                return;
-            }
-            
-            // Stop current camera
-            stopCamera();
-            
-            // Toggle camera mode
-            state.cameraFacingMode = state.cameraFacingMode === 'environment' ? 'user' : 'environment';
-            logDebug('Switching to ' + state.cameraFacingMode + ' camera');
-            
-            // Start with new camera after a brief pause
-            setTimeout(() => {
-                startCamera();
-            }, 500);
-        });
-
         function stopCamera() {
             if (!state.scanning) return;
             
@@ -1000,7 +959,6 @@
             scanStatus.className = 'status info';
             scanStatus.textContent = 'Camera stopped. Press "Start Camera" to begin scanning.';
         }
-
         async function switchCamera() {
             // If we're not scanning, just toggle the mode
             if (!state.scanning) {
@@ -1021,7 +979,6 @@
                 startCamera();
             }, 500);
         }
-
         async function scanQRCode() {
             if (!state.scanning) return;
             
@@ -1145,7 +1102,6 @@
                 }, 1000);
             }
         }
-
         // Process connection data from QR code or manual input
         async function processConnectionData(connectionData) {
             try {
@@ -1235,7 +1191,6 @@
                 updateConnectionStatus('disconnected');
             }
         }
-
         // Manual connection (fallback method)
         connectBtn.addEventListener('click', async () => {
             if (!state.initialized) {
@@ -1270,7 +1225,6 @@
                 connectStatus.textContent = `Error: ${error.message}`;
             }
         });
-
         // Create WebRTC offer
         async function createOffer() {
             try {
@@ -1320,7 +1274,6 @@
                 throw error;
             }
         }
-
         // Process a remote offer and create an answer
         async function processOffer(offerData) {
             try {
@@ -1354,7 +1307,6 @@
                 throw error;
             }
         }
-
         // Process a remote answer
         async function processAnswer(answerData) {
             try {
@@ -1373,7 +1325,6 @@
                 throw error;
             }
         }
-
         // Add a remote ICE candidate
         async function addRemoteIceCandidate(candidate) {
             try {
@@ -1391,7 +1342,6 @@
                 return false;
             }
         }
-
         // Wait for ICE gathering to complete
         function waitForIceGathering() {
             return new Promise((resolve) => {
@@ -1446,7 +1396,6 @@
                 state.peerConnection.addEventListener('icegatheringstatechange', checkState);
             });
         }
-
         // Set up event handlers for the peer connection
         function setupPeerConnectionHandlers() {
             // ICE candidate event
@@ -1539,7 +1488,6 @@
                 setupDataChannelHandlers(state.dataChannel);
             });
         }
-
         // Set up event handlers for the data channel
         function setupDataChannelHandlers(dataChannel) {
             dataChannel.addEventListener('open', () => {
@@ -1579,7 +1527,6 @@
                 }
             });
         }
-
         // Restart ICE connection if it fails
         function restartIce() {
             if (!state.peerConnection || !state.initiator) return;
@@ -1613,7 +1560,6 @@
                 console.error('Error restarting ICE:', error);
             }
         }
-
         // Send message
         sendBtn.addEventListener('click', sendMessage);
         messageInput.addEventListener('keypress', (e) => {
@@ -1621,7 +1567,6 @@
                 sendMessage();
             }
         });
-
         function sendMessage() {
             if (!state.dataChannel || state.dataChannel.readyState !== 'open') {
                 addMessage('Cannot send message: Data channel is not open', 'system');
@@ -1656,7 +1601,6 @@
                 addMessage(`Error sending message: ${error.message}`, 'system');
             }
         }
-
         function addMessage(text, type) {
             const messageElement = document.createElement('div');
             messageElement.classList.add('message', type);
@@ -1666,7 +1610,6 @@
             // Scroll to bottom
             messages.scrollTop = messages.scrollHeight;
         }
-
         // Helper function to update connection status
         function updateConnectionStatus(newState) {
             state.connectionState = newState;
@@ -1693,19 +1636,16 @@
                     break;
             }
         }
-
         // Helper functions for ID and key generation
         function generateRandomId() {
             return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
         }
-
         function generateRandomKey() {
             // Generate a random 256-bit key (32 bytes)
             const keyArray = new Uint8Array(32);
             window.crypto.getRandomValues(keyArray);
             return Array.from(keyArray).map(b => b.toString(16).padStart(2, '0')).join('');
         }
-
         // Encryption/decryption functions
         function encrypt(message, key) {
             try {
@@ -1730,7 +1670,6 @@
                 throw error;
             }
         }
-
         function decrypt(encryptedHex, key) {
             try {
                 // Convert the hex string to a byte array
@@ -1754,7 +1693,6 @@
                 throw error;
             }
         }
-
         function hexToBytes(hex) {
             const bytes = new Uint8Array(hex.length / 2);
             for (let i = 0; i < hex.length; i += 2) {
@@ -1762,11 +1700,9 @@
             }
             return bytes;
         }
-
         function bytesToHex(bytes) {
             return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
         }
-
         // Check for WebRTC and camera support
         function checkSupport() {
             // Check for WebRTC support
@@ -1785,7 +1721,6 @@
             
             return true;
         }
-
         // Initialize the app
         checkSupport();
     </script>
