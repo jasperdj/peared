@@ -6,7 +6,7 @@
     <title>Peared - P2P Messaging</title>
     <!-- QR Code libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -283,6 +283,9 @@
         </div>
         
         <div id="scan-qr-tab" class="tab-content">
+            <div id="qr-scanning-status" class="status info" style="margin-bottom: 20px;">
+                Checking QR code scanning availability...
+            </div>
             <p>Scan the QR code from the other person:</p>
             <div id="video-container">
                 <div class="scan-region-highlight-bg"></div>
@@ -294,9 +297,14 @@
                 <button id="start-camera-btn">Start Camera</button>
                 <button id="stop-camera-btn" disabled>Stop Camera</button>
                 <button id="switch-camera-btn">Switch Camera</button>
+                <button id="capture-qr-btn" disabled>Capture Image</button>
             </div>
             <div id="scan-status" class="status info">Press "Start Camera" to begin scanning.</div>
             <div id="qr-result" class="status success"></div>
+            
+            <div class="status info" style="margin-top: 20px;">
+                <strong>Tip:</strong> If scanning doesn't work, use the "Capture Image" button and switch to manual mode.
+            </div>
         </div>
         
         <div id="manual-tab" class="tab-content">
@@ -876,11 +884,9 @@
                 scanStatus.textContent = 'Accessing camera...';
                 logDebug('Attempting to access camera');
                 
-                // Check if jsQR global function exists (it should now with our fallback)
-                if (typeof jsQR !== 'function') {
-                    logDebug('jsQR still not defined even with fallback - serious issue');
-                    throw new Error('QR scanning function unavailable');
-                }
+                // Check if jsQR is available
+                const jsQrAvailable = typeof jsQR === 'function';
+                logDebug('jsQR available: ' + jsQrAvailable);
                 
                 const constraints = { 
                     video: { 
@@ -906,23 +912,23 @@
                 await qrVideo.play();
                 logDebug('Camera stream started');
                 
-                // Enable scanning
+                // Enable buttons
                 state.scanning = true;
                 startCameraBtn.disabled = true;
                 stopCameraBtn.disabled = false;
+                document.getElementById('capture-qr-btn').disabled = false;
                 
-                // Start scanning for QR codes
-                logDebug('Starting QR code scanning with our implementation');
-                scanQRCode();
-                
-                scanStatus.className = 'status success';
-                scanStatus.textContent = 'Camera active. Scanning for QR codes...';
-                
-                // Show warning that we're using basic detection
-                setTimeout(() => {
-                    scanStatus.className = 'status info';
-                    scanStatus.textContent = 'Scanning for QR codes (basic detection). Hold QR code steady in frame.';
-                }, 3000);
+                if (jsQrAvailable) {
+                    // Start QR code scanning
+                    logDebug('Starting automatic QR code scanning');
+                    scanQRCode();
+                    scanStatus.className = 'status success';
+                    scanStatus.textContent = 'Camera active. Looking for QR codes...';
+                } else {
+                    // Just use camera for manual capture
+                    scanStatus.className = 'status warning';
+                    scanStatus.textContent = 'Automatic scanning unavailable. Use Capture Image button.';
+                }
                 
             } catch (error) {
                 console.error('Camera access error:', error);
@@ -948,8 +954,32 @@
                 state.scanning = false;
                 startCameraBtn.disabled = false;
                 stopCameraBtn.disabled = true;
+                document.getElementById('capture-qr-btn').disabled = true;
             }
         }
+        
+        // Switch camera between front and back
+        document.getElementById('switch-camera-btn').addEventListener('click', async function() {
+            if (!state.scanning) {
+                // Just change the mode
+                state.cameraFacingMode = state.cameraFacingMode === 'environment' ? 'user' : 'environment';
+                scanStatus.className = 'status info';
+                scanStatus.textContent = `Switched to ${state.cameraFacingMode === 'environment' ? 'back' : 'front'} camera`;
+                return;
+            }
+            
+            // Stop current camera
+            stopCamera();
+            
+            // Toggle camera mode
+            state.cameraFacingMode = state.cameraFacingMode === 'environment' ? 'user' : 'environment';
+            logDebug('Switching to ' + state.cameraFacingMode + ' camera');
+            
+            // Start with new camera after a brief pause
+            setTimeout(() => {
+                startCamera();
+            }, 500);
+        });
 
         function stopCamera() {
             if (!state.scanning) return;
