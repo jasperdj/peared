@@ -4,97 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Peared - P2P Messaging</title>
-    <!-- QR Code libraries with fallbacks -->
+    <!-- QR Code libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script>
-        // Create a fallback if QRCode library failed to load
-        if (typeof QRCode === 'undefined') {
-            console.warn('QRCode library failed to load, creating fallback');
-            window.QRCode = function(container, options) {
-                if (typeof container === 'string') {
-                    container = document.getElementById(container);
-                }
-                
-                // Create a simple visual representation
-                container.innerHTML = '';
-                
-                const message = document.createElement('div');
-                message.style.width = options.width + 'px';
-                message.style.height = options.height + 'px';
-                message.style.backgroundColor = '#f8f8f8';
-                message.style.border = '1px solid #ddd';
-                message.style.margin = '0 auto';
-                message.style.display = 'flex';
-                message.style.flexDirection = 'column';
-                message.style.justifyContent = 'center';
-                message.style.alignItems = 'center';
-                message.style.padding = '20px';
-                message.style.boxSizing = 'border-box';
-                
-                const icon = document.createElement('div');
-                icon.style.width = '100px';
-                icon.style.height = '100px';
-                icon.style.border = '10px solid #333';
-                icon.style.borderRadius = '20px';
-                icon.style.position = 'relative';
-                icon.style.marginBottom = '15px';
-
-                const innerSquare = document.createElement('div');
-                innerSquare.style.width = '40px';
-                innerSquare.style.height = '40px';
-                innerSquare.style.backgroundColor = '#333';
-                innerSquare.style.position = 'absolute';
-                innerSquare.style.top = '50%';
-                innerSquare.style.left = '50%';
-                innerSquare.style.transform = 'translate(-50%, -50%)';
-                
-                icon.appendChild(innerSquare);
-                message.appendChild(icon);
-                
-                const text = document.createElement('p');
-                text.textContent = 'QR Code Not Available';
-                text.style.fontFamily = 'Arial, sans-serif';
-                text.style.textAlign = 'center';
-                text.style.margin = '0';
-                
-                const subtext = document.createElement('p');
-                subtext.textContent = 'Please use the manual connection method below';
-                subtext.style.fontFamily = 'Arial, sans-serif';
-                subtext.style.textAlign = 'center';
-                subtext.style.fontSize = '12px';
-                subtext.style.color = '#666';
-                subtext.style.marginTop = '5px';
-                
-                message.appendChild(text);
-                message.appendChild(subtext);
-                
-                container.appendChild(message);
-                
-                // Expose the required interface
-                this.clear = function() {
-                    container.innerHTML = '';
-                };
-                
-                this.makeCode = function(text) {
-                    // Nothing to do here in our fallback
-                };
-            };
-            
-            // Add static property for compatibility
-            window.QRCode.CorrectLevel = { L: 1, M: 0, Q: 3, H: 2 };
-        }
-    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
-    <script>
-        // Create a fallback if jsQR library failed to load
-        if (typeof jsQR === 'undefined') {
-            console.warn('jsQR library failed to load, creating fallback');
-            window.jsQR = function(data, width, height, options) {
-                // Return null to indicate no QR code was found
-                return null;
-            };
-        }
-    </script>
     <style>
         * {
             box-sizing: border-box;
@@ -489,6 +401,17 @@
             });
         });
 
+        // Copy connection string button
+        document.getElementById('copy-connection-btn')?.addEventListener('click', function() {
+            const connectionString = document.getElementById('connection-string');
+            connectionString.select();
+            document.execCommand('copy');
+            this.textContent = 'Copied!';
+            setTimeout(() => {
+                this.textContent = 'Copy Connection String';
+            }, 2000);
+        });
+
         // Initialize peer
         initBtn.addEventListener('click', async () => {
             try {
@@ -617,13 +540,20 @@
             document.getElementById('qrcode-container').style.display = 'block';
             
             try {
-                // Try to generate QR code with our alternative robust method
-                createQRCodeAlternative(connectionJson, qrcodeDiv);
+                // Generate QR code using the standard library
+                new QRCode(qrcodeDiv, {
+                    text: connectionJson,
+                    width: 256,
+                    height: 256,
+                    colorDark: "#000000",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.M
+                });
                 
                 qrStatus.className = 'status success';
                 qrStatus.textContent = 'QR code ready! Have the other person scan this code.';
                 
-                // Always show manual fallback for iPad users who might have QR code issues
+                // Show manual fallback for iPad users who might have QR code issues
                 document.getElementById('manual-fallback').style.display = 'block';
             } catch (error) {
                 console.error('Error generating QR code:', error);
@@ -632,6 +562,39 @@
                 
                 // Show manual fallback
                 document.getElementById('manual-fallback').style.display = 'block';
+                
+                // Try to create a simple fallback QR-like visual
+                try {
+                    const fallbackDiv = document.createElement('div');
+                    fallbackDiv.style.width = '256px';
+                    fallbackDiv.style.height = '256px';
+                    fallbackDiv.style.margin = '0 auto';
+                    fallbackDiv.style.backgroundColor = '#f0f0f0';
+                    fallbackDiv.style.border = '1px solid #ddd';
+                    fallbackDiv.style.display = 'flex';
+                    fallbackDiv.style.alignItems = 'center';
+                    fallbackDiv.style.justifyContent = 'center';
+                    fallbackDiv.style.flexDirection = 'column';
+                    fallbackDiv.style.padding = '20px';
+                    fallbackDiv.style.boxSizing = 'border-box';
+                    
+                    const message = document.createElement('p');
+                    message.textContent = 'QR Code Not Available';
+                    message.style.textAlign = 'center';
+                    message.style.fontWeight = 'bold';
+                    
+                    const subMessage = document.createElement('p');
+                    subMessage.textContent = 'Please use the manual connection below';
+                    subMessage.style.textAlign = 'center';
+                    subMessage.style.fontSize = '14px';
+                    
+                    fallbackDiv.appendChild(message);
+                    fallbackDiv.appendChild(subMessage);
+                    
+                    qrcodeDiv.appendChild(fallbackDiv);
+                } catch (fallbackError) {
+                    console.error('Error creating fallback visual:', fallbackError);
+                }
             }
         }
 
@@ -826,15 +789,41 @@
                     // for the other person to scan
                     qrcodeDiv.innerHTML = '';
                     
-                    // Generate QR code with the answer data
-                    const qrcode = new QRCode(qrcodeDiv, {
-                        text: JSON.stringify(answerData),
-                        width: 256,
-                        height: 256,
-                        colorDark: "#000000",
-                        colorLight: "#ffffff",
-                        correctLevel: QRCode.CorrectLevel.M
-                    });
+                    try {
+                        // Generate QR code with the answer data
+                        new QRCode(qrcodeDiv, {
+                            text: JSON.stringify(answerData),
+                            width: 256,
+                            height: 256,
+                            colorDark: "#000000",
+                            colorLight: "#ffffff",
+                            correctLevel: QRCode.CorrectLevel.M
+                        });
+                        
+                        // Update the manual connection textarea
+                        const connectionStringTextarea = document.getElementById('connection-string');
+                        if (connectionStringTextarea) {
+                            connectionStringTextarea.value = JSON.stringify(answerData);
+                        }
+                        
+                        // Always show manual fallback
+                        document.getElementById('manual-fallback').style.display = 'block';
+                    } catch (e) {
+                        console.error('Error creating answer QR code:', e);
+                        
+                        // Show error and manual option
+                        qrStatus.className = 'status error';
+                        qrStatus.textContent = 'Error creating QR code. Use manual connection.';
+                        
+                        // Update the manual connection textarea
+                        const connectionStringTextarea = document.getElementById('connection-string');
+                        if (connectionStringTextarea) {
+                            connectionStringTextarea.value = JSON.stringify(answerData);
+                        }
+                        
+                        // Always show manual fallback
+                        document.getElementById('manual-fallback').style.display = 'block';
+                    }
                     
                     // Switch to show QR tab
                     document.querySelector('[data-tab="show-qr-tab"]').click();
