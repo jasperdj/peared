@@ -7,6 +7,8 @@
     <!-- QR Code libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- LZString for compression -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -236,7 +238,7 @@
     </style>
 </head>
 <body>
-    <h1>Peared</h1>
+    <h1>Peared v1.0</h1>
     <div class="subtitle">Secure P2P Messaging</div>
     <div class="card">
         <h2>Step 1: Initialize WebRTC</h2>
@@ -788,21 +790,32 @@
                 
                 // Convert connection data to JSON
                 const compactJson = JSON.stringify(compactData);
-                logDebug(`Compact connection data JSON length: ${compactJson.length} bytes`);
+                logDebug(`Uncompressed connection data JSON length: ${compactJson.length} bytes`);
+                
+                // Now apply our hyper-compression to all data
+                const hyperCompressedData = hyperCompress(compactData);
+                const hyperCompressedJson = JSON.stringify(hyperCompressedData);
+                logDebug(`Hyper-compressed data length: ${hyperCompressedJson.length} bytes (${Math.round((hyperCompressedJson.length / compactJson.length) * 100)}% of original)`);
+                
+                // Choose the smallest representation
+                let finalDataToUse = hyperCompressedJson; // Default to hyper-compressed
+                let compressionMode = 'hyper';
+                
+                // Only use compression if it actually reduces size
+                if (hyperCompressedJson.length >= compactJson.length) {
+                    finalDataToUse = compactJson;
+                    compressionMode = 'none';
+                    logDebug('Using uncompressed data (smaller than compressed version)');
+                }
                 
                 // Show the connection string in the textarea as fallback
                 const connectionStringTextarea = document.getElementById('connection-string');
                 if (connectionStringTextarea) {
-                    connectionStringTextarea.value = compactJson;
+                    connectionStringTextarea.value = finalDataToUse;
                 }
                 
                 // Show the QR code container
                 document.getElementById('qrcode-container').style.display = 'block';
-                
-                // Check if data is too large for QR code (typical max is around 2500 bytes)
-                if (compactJson.length > 2500) {
-                    throw new Error(`Data size (${compactJson.length} bytes) is too large for reliable QR code generation`);
-                }
                 
                 // Create a clean div for the QR code
                 const qrPlaceholder = document.createElement('div');
@@ -812,10 +825,10 @@
                 // Detect mobile devices - mobile browsers may need special handling
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
                 
-                if (1==2) { // Temp: isMobile
+                if (isMobile) {
                     logDebug('Mobile device detected, using canvas-based QR code generation');
                     // Try canvas-based QR generation which is more reliable on mobile
-                    generateCanvasQRCode(qrPlaceholder, compactJson, 256);
+                    generateCanvasQRCode(qrPlaceholder, finalDataToUse, 256);
                 } else {
                     try {
                         // Try standard QRCode library with error handling
@@ -824,7 +837,7 @@
                             setTimeout(() => {
                                 try {
                                     new QRCode(qrPlaceholder, {
-                                        text: compactJson,
+                                        text: finalDataToUse,
                                         width: 256,
                                         height: 256,
                                         colorDark: "#000000",
@@ -835,7 +848,7 @@
                                 } catch (qrLibError) {
                                     logDebug(`Standard QR library failed: ${qrLibError.message}`);
                                     // Fallback to canvas
-                                    generateCanvasQRCode(qrPlaceholder, compactJson, 256);
+                                    generateCanvasQRCode(qrPlaceholder, finalDataToUse, 256);
                                 }
                             }, 100); // Small delay to ensure DOM is ready
                         } else {
@@ -844,12 +857,12 @@
                     } catch (qrInitError) {
                         logDebug(`QR library initialization error: ${qrInitError.message}`);
                         // Fallback to canvas method
-                        generateCanvasQRCode(qrPlaceholder, compactJson, 256);
+                        generateCanvasQRCode(qrPlaceholder, finalDataToUse, 256);
                     }
                 }
                 
                 qrStatus.className = 'status success';
-                qrStatus.textContent = 'QR code ready! Have the other person scan this code.';
+                qrStatus.textContent = `QR code ready! ${compressionMode !== 'none' ? `(${compressionMode} compressed)` : ''} Have the other person scan this code.`;
                 
                 // Show manual fallback always
                 document.getElementById('manual-fallback').style.display = 'block';
@@ -1166,43 +1179,73 @@
                     
                     // We found a QR code with data
                     if (code.data) {
-                        logDebug('QR code detected with data: ' + code.data.substring(0, 50) + '...');
+                        logDebug('QR code detected with data: ' + (code.data.length > 50 ? code.data.substring(0, 50) + '...' : code.data));
                         
                         try {
                             // Try to parse as JSON
-                            const connectionData = JSON.parse(code.data);
+                            const scannedData = JSON.parse(code.data);
                             
+                            // First check for any compressed format (v1, v2, or v3)
+                            if (scannedData.v !== undefined && scannedData.c !== undefined && scannedData.d !== undefined) {
+                                logDebug(`Detected compressed data format (v${scannedData.v})`);
+                                
+                                // Display info about the found QR code
+                                qrResult.style.display = 'block';
+                                qrResult.textContent = `Found compressed Peared QR code! Decompressing...`;
+                                
+                                // Stop scanning
+                                stopCamera();
+                                
+                                // Process the compressed data
+                                try {
+                                    // First try to decompress
+                                    const decompressedData = hyperDecompress(scannedData);
+                                    logDebug('Successfully decompressed data');
+                                    
+                                    // Now process the decompressed data
+                                    processConnectionData(decompressedData);
+                                    
+                                    // Don't request any more animation frames
+                                    return;
+                                } catch (decompError) {
+                                    logDebug(`Failed to decompress: ${decompError.message}`);
+                                    
+                                    // Try using the raw compressed data as is
+                                    processConnectionData(scannedData);
+                                    return;
+                                }
+                            }
                             // Check if it's valid connection data (standard format)
-                            if (connectionData.id && connectionData.key && 
-                              (connectionData.offer || connectionData.answer)) {
+                            else if (scannedData.id && scannedData.key && 
+                              (scannedData.offer || scannedData.answer)) {
                                 
                                 // Successfully found a valid QR code
                                 qrResult.style.display = 'block';
-                                qrResult.textContent = `Found valid Peared QR code! Connecting to ${connectionData.id}...`;
+                                qrResult.textContent = `Found valid Peared QR code! Connecting to ${scannedData.id}...`;
                                 logDebug('Valid QR code found (standard format), connecting...');
                                 
                                 // Stop scanning
                                 stopCamera();
                                 
                                 // Process the connection data
-                                processConnectionData(connectionData);
+                                processConnectionData(scannedData);
                                 
                                 // Don't request any more animation frames
                                 return;
                             } 
                             // Check for compact format
-                            else if (connectionData.i && connectionData.k && 
-                                    (connectionData.o || connectionData.a)) {
+                            else if (scannedData.i && scannedData.k && 
+                                    (scannedData.o || scannedData.a)) {
                                 
                                 logDebug('Found compact format QR code');
                                 
                                 // Convert to standard format
                                 const standardFormat = {
-                                    id: connectionData.i,
-                                    key: connectionData.k,
-                                    offer: connectionData.o,
-                                    answer: connectionData.a,
-                                    iceCandidates: connectionData.c
+                                    id: scannedData.i,
+                                    key: scannedData.k,
+                                    offer: scannedData.o,
+                                    answer: scannedData.a,
+                                    iceCandidates: scannedData.c
                                 };
                                 
                                 // Successfully found a valid QR code
@@ -1218,7 +1261,7 @@
                                 // Don't request any more animation frames
                                 return;
                             } else {
-                                logDebug('Found QR code but invalid format: ' + JSON.stringify(connectionData).substring(0, 100));
+                                logDebug('Found QR code but invalid format: ' + JSON.stringify(scannedData).substring(0, 100));
                             }
                         } catch (e) {
                             logDebug('Error parsing QR code data: ' + e.message);
@@ -1244,6 +1287,331 @@
                 }, 1000);
             }
         }
+        // Extreme compression functions for small data
+        function hyperCompress(data) {
+            try {
+                logDebug('Applying hyperCompression to data');
+                
+                if (typeof data !== 'object') return data;
+                
+                // Step 1: Create a deep copy to avoid modifying the original
+                const originalJson = JSON.stringify(data);
+                let processedData = JSON.parse(originalJson);
+                
+                // Step 2: Process SDP specifically (the largest part)
+                if (processedData.o && processedData.o.sdp) {
+                    // Convert SDP to minimal format
+                    processedData.o.sdp = minifySdp(processedData.o.sdp);
+                }
+                
+                // Step 3: Process candidates (also large)
+                if (processedData.c && Array.isArray(processedData.c)) {
+                    processedData.c = processedData.c.map(candidate => {
+                        if (typeof candidate === 'object') {
+                            // Extract only essential information
+                            return {
+                                c: candidate.candidate ? minifyCandidate(candidate.candidate) : undefined,
+                                m: candidate.sdpMid,
+                                l: candidate.sdpMLineIndex,
+                                u: candidate.usernameFragment
+                            };
+                        }
+                        return candidate;
+                    });
+                }
+                
+                // Step 4: Prepare for maximum compression
+                const ultraCompressed = JSON.stringify(processedData);
+                logDebug(`Ultra-minimized JSON size: ${ultraCompressed.length} bytes (${Math.round((ultraCompressed.length / originalJson.length) * 100)}% of original)`);
+                
+                // Step 5: Apply multiple compression techniques
+                if (typeof LZString !== 'undefined') {
+                    try {
+                        // Apply URI component compression (usually most effective)
+                        const compressed = LZString.compressToEncodedURIComponent(ultraCompressed);
+                        logDebug(`HyperCompressed data length: ${compressed.length} bytes (${Math.round((compressed.length / originalJson.length) * 100)}% of original)`);
+                        
+                        // Create a wrapper with version info for decompression
+                        return {
+                            v: 3, // version 3 format - hyper-compressed
+                            c: 3, // compression level 3
+                            d: compressed
+                        };
+                    } catch (e) {
+                        logDebug(`Extreme compression failed: ${e.message}`);
+                    }
+                }
+                
+                // If we got here, compression failed, return processed data
+                return processedData;
+                
+            } catch (error) {
+                logDebug(`HyperCompression error: ${error.message}`);
+                return data; // Return original on error
+            }
+        }
+        
+        // Minify SDP by removing unnecessary parts
+        function minifySdp(sdp) {
+            if (!sdp) return sdp;
+            
+            try {
+                // Convert CRLF to LF
+                let result = sdp.replace(/\r\n/g, '\n');
+                
+                // Remove unnecessary whitespace
+                result = result.replace(/\s+$/gm, '');
+                
+                // Map a=XXX entries to shorter format using first two chars
+                const sdpParts = result.split('\n');
+                const processed = sdpParts.map(line => {
+                    // Minify a= lines which are most common
+                    if (line.startsWith('a=')) {
+                        // Create a dictionary of common SDP attributes to shorter codes
+                        const attributeMappings = {
+                            'group:BUNDLE': 'gb',
+                            'extmap-allow-mixed': 'ea',
+                            'msid-semantic:': 'ms',
+                            'ice-ufrag:': 'iu',
+                            'ice-pwd:': 'ip',
+                            'ice-options:': 'io',
+                            'fingerprint:': 'fp',
+                            'setup:': 'su',
+                            'mid:': 'mi',
+                            'sctp-port:': 'sp',
+                            'max-message-size:': 'mm',
+                            'candidate:': 'ca'
+                        };
+                        
+                        // Replace common patterns
+                        let shortened = line.substring(2); // Remove a=
+                        for (const [pattern, replacement] of Object.entries(attributeMappings)) {
+                            if (shortened.startsWith(pattern)) {
+                                return `@${replacement}${shortened.substring(pattern.length)}`;
+                            }
+                        }
+                        return `@${shortened}`; // Default fallback
+                    }
+                    // Handle other line types
+                    else if (line.startsWith('v=')) return `v${line.substring(2)}`;
+                    else if (line.startsWith('o=')) return `o${line.substring(2)}`;
+                    else if (line.startsWith('s=')) return `s${line.substring(2)}`;
+                    else if (line.startsWith('t=')) return `t${line.substring(2)}`;
+                    else if (line.startsWith('m=')) return `m${line.substring(2)}`;
+                    else if (line.startsWith('c=')) return `c${line.substring(2)}`;
+                    
+                    return line; // No change
+                });
+                
+                return processed.join('|'); // Use | as separator instead of \n
+            } catch (e) {
+                logDebug(`SDP minification error: ${e.message}`);
+                return sdp; // Return original on error
+            }
+        }
+        
+        // Minify ICE candidate string
+        function minifyCandidate(candidate) {
+            if (!candidate) return candidate;
+            
+            try {
+                // Extract components by splitting
+                const parts = candidate.split(' ');
+                if (parts.length < 8) return candidate;
+                
+                // Only keep essential parts, using position instead of keywords
+                // Format: foundation, component, protocol, priority, ip, port, type, ...rest
+                let result = parts[0].replace('candidate:', ''); // foundation
+                result += `,${parts[1]}`; // component
+                result += `,${parts[2]}`; // protocol
+                result += `,${parts[3]}`; // priority
+                result += `,${parts[4]}`; // ip
+                result += `,${parts[5]}`; // port
+                result += `,${parts[7]}`; // type value
+                
+                // Selectively add other important parts
+                for (let i = 8; i < parts.length; i += 2) {
+                    if (i + 1 < parts.length) {
+                        if (['generation', 'ufrag', 'network-cost'].includes(parts[i])) {
+                            const shortKey = parts[i].charAt(0); // Take first letter
+                            result += `,${shortKey}:${parts[i+1]}`;
+                        }
+                    }
+                }
+                
+                return result;
+            } catch (e) {
+                logDebug(`Candidate minification error: ${e.message}`);
+                return candidate; // Return original on error
+            }
+        }
+        
+        // Restore a minified SDP to standard format
+        function restoreSdp(minified) {
+            if (!minified) return minified;
+            
+            try {
+                // Replace | with \r\n
+                let result = minified.replace(/\|/g, '\r\n');
+                
+                // Restore shortened formats
+                result = result.replace(/v/g, 'v=');
+                result = result.replace(/o/g, 'o=');
+                result = result.replace(/s/g, 's=');
+                result = result.replace(/t/g, 't=');
+                result = result.replace(/m/g, 'm=');
+                result = result.replace(/c/g, 'c=');
+                
+                // Replace @ shorthand with a=
+                result = result.replace(/@gb/g, 'a=group:BUNDLE');
+                result = result.replace(/@ea/g, 'a=extmap-allow-mixed');
+                result = result.replace(/@ms/g, 'a=msid-semantic:');
+                result = result.replace(/@iu/g, 'a=ice-ufrag:');
+                result = result.replace(/@ip/g, 'a=ice-pwd:');
+                result = result.replace(/@io/g, 'a=ice-options:');
+                result = result.replace(/@fp/g, 'a=fingerprint:');
+                result = result.replace(/@su/g, 'a=setup:');
+                result = result.replace(/@mi/g, 'a=mid:');
+                result = result.replace(/@sp/g, 'a=sctp-port:');
+                result = result.replace(/@mm/g, 'a=max-message-size:');
+                result = result.replace(/@ca/g, 'a=candidate:');
+                result = result.replace(/@/g, 'a=');
+                
+                return result;
+            } catch (e) {
+                logDebug(`SDP restoration error: ${e.message}`);
+                return minified; // Return original on error
+            }
+        }
+        
+        // Restore a minified candidate string
+        function restoreCandidate(minified) {
+            if (!minified) return minified;
+            
+            try {
+                const parts = minified.split(',');
+                if (parts.length < 7) return minified;
+                
+                // Basic reconstruction
+                let result = `candidate:${parts[0]} ${parts[1]} ${parts[2]} ${parts[3]} ${parts[4]} ${parts[5]} typ ${parts[6]}`;
+                
+                // Add other parameters
+                for (let i = 7; i < parts.length; i++) {
+                    const kvPart = parts[i].split(':');
+                    if (kvPart.length === 2) {
+                        // Expand shortened keys
+                        const key = kvPart[0];
+                        const value = kvPart[1];
+                        
+                        if (key === 'g') result += ` generation ${value}`;
+                        else if (key === 'u') result += ` ufrag ${value}`;
+                        else if (key === 'n') result += ` network-cost ${value}`;
+                        else result += ` ${key} ${value}`; // Unknown key
+                    }
+                }
+                
+                return result;
+            } catch (e) {
+                logDebug(`Candidate restoration error: ${e.message}`);
+                return minified; // Return original on error
+            }
+        }
+        
+        // Function to decompress data with the enhanced techniques
+        function hyperDecompress(data) {
+            try {
+                // Check if the data is a compressed wrapper format
+                if (data.v !== undefined && data.c !== undefined && data.d !== undefined) {
+                    logDebug(`Detected compressed data format version ${data.v}`);
+                    
+                    if (typeof LZString === 'undefined') {
+                        throw new Error('LZString library not available for decompression');
+                    }
+                    
+                    // Decompress based on the version and compression flag
+                    if (data.v === 1 && data.c === true) {
+                        // Version 1: Base64 compressed
+                        const decompressed = LZString.decompressFromBase64(data.d);
+                        logDebug(`Decompressed v1 data from ${data.d.length} to ${decompressed.length} bytes`);
+                        return JSON.parse(decompressed);
+                    } else if (data.v === 2 && data.c === 2) {
+                        // Version 2: URI component compressed (highest compression)
+                        const decompressed = LZString.decompressFromEncodedURIComponent(data.d);
+                        logDebug(`Decompressed v2 data from ${data.d.length} to ${decompressed.length} bytes`);
+                        return JSON.parse(decompressed);
+                    } else if (data.v === 3 && data.c === 3) {
+                        // Version 3: Hyper-compressed with custom format
+                        const decompressed = LZString.decompressFromEncodedURIComponent(data.d);
+                        logDebug(`HyperDecompressed v3 data from ${data.d.length} to ${decompressed.length} bytes`);
+                        
+                        // Parse the decompressed JSON
+                        const parsedData = JSON.parse(decompressed);
+                        
+                        // Restore the minimized formats
+                        if (parsedData.o && parsedData.o.sdp) {
+                            parsedData.o.sdp = restoreSdp(parsedData.o.sdp);
+                        }
+                        
+                        if (parsedData.c && Array.isArray(parsedData.c)) {
+                            parsedData.c = parsedData.c.map(candidate => {
+                                if (typeof candidate === 'object') {
+                                    return {
+                                        candidate: candidate.c ? restoreCandidate(candidate.c) : undefined,
+                                        sdpMid: candidate.m,
+                                        sdpMLineIndex: candidate.l,
+                                        usernameFragment: candidate.u
+                                    };
+                                }
+                                return candidate;
+                            });
+                        }
+                        
+                        return parsedData;
+                    }
+                }
+                
+                // If not compressed or unknown format, return as is
+                return data;
+            } catch (error) {
+                logDebug(`HyperDecompression error: ${error.message}, using original data`);
+                return data;
+            }
+        }
+        
+        // Modified decompressData function to handle all formats
+        function decompressData(data) {
+            try {
+                // First try the advanced decompression
+                return hyperDecompress(data);
+            } catch (error) {
+                logDebug(`Error in advanced decompression: ${error.message}`);
+                // Fall back to original approach
+                
+                // Check if the data is a compressed wrapper format
+                if (data.v !== undefined && data.c !== undefined && data.d !== undefined) {
+                    logDebug(`Falling back to standard decompression for format v${data.v}`);
+                    
+                    if (typeof LZString === 'undefined') {
+                        throw new Error('LZString library not available for decompression');
+                    }
+                    
+                    // Decompress based on the version and compression flag
+                    if (data.v === 1 && data.c === true) {
+                        // Version 1: Base64 compressed
+                        const decompressed = LZString.decompressFromBase64(data.d);
+                        return JSON.parse(decompressed);
+                    } else if (data.v === 2 && data.c === 2) {
+                        // Version 2: URI component compressed (highest compression)
+                        const decompressed = LZString.decompressFromEncodedURIComponent(data.d);
+                        return JSON.parse(decompressed);
+                    }
+                }
+                
+                // If not compressed or unknown format, return as is
+                return data;
+            }
+        }
+        
         // Process connection data from QR code or manual input
         async function processConnectionData(connectionData) {
             try {
@@ -1253,9 +1621,44 @@
                 
                 updateConnectionStatus('connecting');
                 
+                // First check if we need to decompress the data
+                let processedData = connectionData;
+                
+                // Check for any compressed format
+                if (connectionData.v !== undefined && connectionData.c !== undefined && connectionData.d !== undefined) {
+                    try {
+                        logDebug(`Attempting to decompress data (format v${connectionData.v})`);
+                        processedData = hyperDecompress(connectionData);
+                        logDebug('Successfully decompressed data');
+                    } catch (decompressError) {
+                        logDebug(`Error decompressing data: ${decompressError.message}`);
+                        // If hyperDecompress fails, try standard decompression
+                        try {
+                            processedData = decompressData(connectionData);
+                            logDebug('Successfully decompressed with standard method');
+                        } catch (standardDecompressError) {
+                            logDebug(`Standard decompression also failed: ${standardDecompressError.message}`);
+                            // Continue with the original data
+                            processedData = connectionData;
+                        }
+                    }
+                }
+                
+                // Extract connection parameters from the processed data
+                // Handle both standard and compact formats
+                const peerId = processedData.id || processedData.i;
+                const secretKey = processedData.key || processedData.k;
+                const offer = processedData.offer || processedData.o;
+                const answer = processedData.answer || processedData.a;
+                const iceCandidates = processedData.iceCandidates || processedData.c;
+                
+                if (!peerId || !secretKey || (!offer && !answer)) {
+                    throw new Error('Invalid connection data format after decompression');
+                }
+                
                 // Store peer information
-                state.otherPeerId = connectionData.id;
-                state.otherSecretKey = connectionData.key;
+                state.otherPeerId = peerId;
+                state.otherSecretKey = secretKey;
                 
                 // Determine which key to use (highest alphanumeric value)
                 const keysToCompare = [state.secretKey, state.otherSecretKey];
@@ -1266,30 +1669,53 @@
                 remotePeerIdDisplay.textContent = state.otherPeerId;
                 connectionDetails.style.display = 'block';
                 
+                // Recreate original format for compatibility with existing functions
+                const standardFormat = {
+                    id: peerId,
+                    key: secretKey,
+                    offer: offer,
+                    answer: answer,
+                    iceCandidates: iceCandidates
+                };
+                
                 // Process offer or create answer
-                if (connectionData.offer) {
+                if (standardFormat.offer) {
                     // They sent us an offer, create an answer
-                    const answerData = await processOffer(connectionData);
+                    const answerData = await processOffer(standardFormat);
                     
                     // Since we're using QR codes, we need to show our answer QR code
                     // for the other person to scan
                     qrcodeDiv.innerHTML = '';
                     
                     try {
-                        // Generate QR code with the answer data
+                        // Compress the answer data using our advanced approach
+                        let compressedAnswerData;
+                        
+                        try {
+                            // Apply hyper-compression to the answer data
+                            compressedAnswerData = hyperCompress(answerData);
+                            const compressedSize = JSON.stringify(compressedAnswerData).length;
+                            const originalSize = JSON.stringify(answerData).length;
+                            logDebug(`Compressed answer data from ${originalSize} to ${compressedSize} bytes (${Math.round((compressedSize / originalSize) * 100)}% of original)`);
+                        } catch (compressError) {
+                            logDebug(`Error hyper-compressing answer: ${compressError.message}`);
+                            compressedAnswerData = answerData; // Use uncompressed as fallback
+                        }
+                        
+                        // Generate QR code with the compressed answer data
                         new QRCode(qrcodeDiv, {
-                            text: JSON.stringify(answerData),
+                            text: JSON.stringify(compressedAnswerData),
                             width: 256,
                             height: 256,
                             colorDark: "#000000",
                             colorLight: "#ffffff",
-                            correctLevel: QRCode.CorrectLevel.M
+                            correctLevel: QRCode.CorrectLevel.L  // Using lowest level for more capacity
                         });
                         
-                        // Update the manual connection textarea
+                        // Update the manual connection textarea - use the compressed version
                         const connectionStringTextarea = document.getElementById('connection-string');
                         if (connectionStringTextarea) {
-                            connectionStringTextarea.value = JSON.stringify(answerData);
+                            connectionStringTextarea.value = JSON.stringify(compressedAnswerData);
                         }
                         
                         // Always show manual fallback
@@ -1317,9 +1743,9 @@
                     qrStatus.className = 'status success';
                     qrStatus.textContent = 'Answer created! Have the other person scan this QR code to complete the connection.';
                     
-                } else if (connectionData.answer) {
+                } else if (standardFormat.answer) {
                     // They sent us an answer to our offer
-                    await processAnswer(connectionData);
+                    await processAnswer(standardFormat);
                     
                     // Update QR code status
                     qrStatus.className = 'status success';
@@ -1352,14 +1778,71 @@
                 connectStatus.className = 'status info';
                 connectStatus.textContent = 'Connecting...';
                 
-                // Parse the connection string
-                const connectionData = JSON.parse(otherIdText);
-                
-                // Process connection data
-                await processConnectionData(connectionData);
-                
-                connectStatus.className = 'status success';
-                connectStatus.textContent = 'Connection process started!';
+                try {
+                    // Parse the connection string
+                    const connectionData = JSON.parse(otherIdText);
+                    
+                    // Update status
+                    connectStatus.className = 'status info';
+                    
+                    // Check if this might be compressed data
+                    if (connectionData.v !== undefined && connectionData.c !== undefined && connectionData.d !== undefined) {
+                        connectStatus.textContent = 'Decompressing connection data...';
+                    } else {
+                        connectStatus.textContent = 'Processing connection data...';
+                    }
+                    
+                    // Process connection data
+                    await processConnectionData(connectionData);
+                    
+                    connectStatus.className = 'status success';
+                    connectStatus.textContent = 'Connection process started!';
+                    
+                } catch (parseError) {
+                    // Maybe it's a raw Base64 string from an older version
+                    connectStatus.className = 'status warning';
+                    connectStatus.textContent = 'Invalid JSON format. Trying alternative parsing...';
+                    
+                    // Try to decompress with LZString if library is available
+                    if (typeof LZString !== 'undefined') {
+                        try {
+                            logDebug('Attempting to treat input as raw compressed string');
+                            
+                            // Try various decompression methods
+                            let decompressedData;
+                            try {
+                                decompressedData = LZString.decompressFromBase64(otherIdText);
+                                if (decompressedData) {
+                                    logDebug('Successfully decompressed from Base64');
+                                }
+                            } catch (e) {
+                                logDebug('Base64 decompression failed, trying URL encoding');
+                                decompressedData = LZString.decompressFromEncodedURIComponent(otherIdText);
+                            }
+                            
+                            if (decompressedData) {
+                                // Try to parse the decompressed data
+                                const parsedData = JSON.parse(decompressedData);
+                                
+                                connectStatus.className = 'status info';
+                                connectStatus.textContent = 'Successfully decompressed legacy format. Connecting...';
+                                
+                                // Process the decompressed data
+                                await processConnectionData(parsedData);
+                                
+                                connectStatus.className = 'status success';
+                                connectStatus.textContent = 'Connection process started!';
+                                return;
+                            }
+                        } catch (decompressionError) {
+                            logDebug(`Alternative parsing failed: ${decompressionError.message}`);
+                            // Fall through to the original error
+                        }
+                    }
+                    
+                    // If we reach here, both normal parsing and alternative parsing failed
+                    throw parseError;
+                }
                 
             } catch (error) {
                 console.error('Connection error:', error);
