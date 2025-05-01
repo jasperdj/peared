@@ -683,6 +683,12 @@
                 return;
             }
             
+            // CHECK CRITICAL PHASE: Don't regenerate QR code if we're in critical handshake phase
+            if (isInCriticalHandshakePhase()) {
+                logDebug('PREVENTED QR code regeneration - in critical handshake phase');
+                return;
+            }
+            
             // Clear previous QR code
             qrcodeDiv.innerHTML = '';
             
@@ -759,8 +765,19 @@
             }
         }
         
-        // Process connection data from QR code
-        async function processConnectionData(connectionData) {
+        // Add a global helper function to check if we're in critical handshake phase
+        function isInCriticalHandshakePhase() {
+            // Critical handshake phase: We've scanned their QR code and created an answer
+            // but they haven't yet scanned our answer QR code. We must NOT regenerate the QR
+            // during this phase as it would break the connection flow.
+            const inCriticalPhase = state.qrCodeScanned && !state.otherQrScanned;
+            
+            if (inCriticalPhase) {
+                logDebug('IN CRITICAL HANDSHAKE PHASE - QR code must remain stable');
+            }
+            
+            return inCriticalPhase;
+        }
             try {
                 if (!state.initialized) {
                     throw new Error('WebRTC not initialized yet. Please wait a moment.');
@@ -1331,10 +1348,16 @@
                     state.localIceCandidates.push(event.candidate);
                     logDebug(`New ICE candidate: ${event.candidate.candidate}`);
                     
-                    // Only update QR if we've already generated it and it's not the initial setup
-                    if (state.qrCodeGenerated && state.localIceCandidates.length % 3 === 0) {
+                    // Only update QR if we've already generated it, not the initial setup,
+                    // and NOT in critical handshake phase
+                    if (state.qrCodeGenerated && 
+                        state.localIceCandidates.length % 3 === 0 && 
+                        !isInCriticalHandshakePhase()) {
+                        
                         logDebug('Updating QR code with new ICE candidates');
                         generateQRCode();
+                    } else if (state.qrCodeGenerated && isInCriticalHandshakePhase()) {
+                        logDebug('PROTECTED QR code from update with new ICE candidates in critical phase');
                     }
                 } else {
                     // null candidate indicates that ICE gathering is complete
@@ -1432,7 +1455,7 @@
             });
         }
         
-        // Function to try to restore a WebRTC connection
+        // Try to restore a WebRTC connection
         function tryToRestoreConnection() {
             // Clear any existing interval
             if (state.reconnectInterval) {
@@ -1444,8 +1467,18 @@
             
             logDebug(`Connection restoration attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts}`);
             
-            // Try regular ICE restart first
-            restartIce();
+            // Skip aggressive methods in critical handshake phase
+            const inCriticalPhase = isInCriticalHandshakePhase();
+            
+            // Try regular ICE restart first, but be gentle if in critical phase
+            if (inCriticalPhase) {
+                logDebug('CRITICAL PHASE: Using gentle connection restoration only');
+                // For critical phase, just try a basic ICE restart without QR regeneration
+                restartIce();
+            } else {
+                // Normal case - full restore attempt
+                restartIce();
+            }
             
             // Set up regular retry interval
             state.reconnectInterval = setInterval(() => {
@@ -1479,14 +1512,23 @@
                 state.reconnectAttempts++;
                 logDebug(`Connection restoration attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts}`);
                 
-                // Alternate between different connection restoration methods
-                if (state.reconnectAttempts % 3 === 0) {
-                    // Every third attempt, try closing and recreating the peer connection
-                    logDebug('Attempting more aggressive reconnection (recreating peer connection)');
-                    recreatePeerConnection();
-                } else {
-                    // Otherwise just do a standard ICE restart
+                // Re-check critical phase state - it might have changed
+                const stillInCriticalPhase = isInCriticalHandshakePhase();
+                
+                // Skip aggressive methods in critical phase
+                if (stillInCriticalPhase) {
+                    logDebug('CRITICAL PHASE: Still using gentle connection restoration only');
                     restartIce();
+                } else {
+                    // Alternate between different connection restoration methods
+                    if (state.reconnectAttempts % 3 === 0) {
+                        // Every third attempt, try closing and recreating the peer connection
+                        logDebug('Attempting more aggressive reconnection (recreating peer connection)');
+                        recreatePeerConnection();
+                    } else {
+                        // Otherwise just do a standard ICE restart
+                        restartIce();
+                    }
                 }
                 
             }, 10000); // Try every 10 seconds
@@ -1497,6 +1539,12 @@
             // Only do this if we have connection data
             if (!state.lastConnectionData) {
                 logDebug('Cannot recreate peer connection - no connection data');
+                return;
+            }
+            
+            // Check if we're in the critical handshake phase - don't recreate if we are
+            if (isInCriticalHandshakePhase()) {
+                logDebug('CRITICAL PHASE PROTECTION: Skipping peer connection recreation');
                 return;
             }
             
@@ -1542,7 +1590,12 @@
                 
                 // Re-process the last connection data
                 setTimeout(() => {
-                    processConnectionData(state.lastConnectionData);
+                    // Double-check we're still not in critical phase
+                    if (!isInCriticalHandshakePhase()) {
+                        processConnectionData(state.lastConnectionData);
+                    } else {
+                        logDebug('PROTECTED from connection recreation in timeout');
+                    }
                 }, 1000);
                 
             } catch (error) {
@@ -1559,10 +1612,8 @@
                 // Don't show UI changes if we're just doing routine restarts
                 const isInitialAttempt = state.reconnectAttempts <= 1;
                 
-                // Critical handshake state: We've scanned their QR code and created an answer
-                // but they haven't yet scanned our answer QR code. We must NOT regenerate the QR
-                // during this phase as it would break the connection flow.
-                const inCriticalHandshakePhase = state.qrCodeScanned && !state.otherQrScanned;
+                // Check if we're in the critical handshake phase
+                const inCriticalHandshakePhase = isInCriticalHandshakePhase();
                 
                 // Only the initiator can create a new offer with ICE restart
                 if (state.initiator) {
@@ -1582,18 +1633,23 @@
                             if (!state.otherQrScanned && !inCriticalHandshakePhase) {
                                 logDebug('Regenerating QR code after ICE restart');
                                 setTimeout(() => {
-                                    generateQRCode();
-                                    
-                                    // Only switch to QR tab and show warning on initial attempts
-                                    if (isInitialAttempt) {
-                                        // Update UI to show new QR code
-                                        document.querySelector('[data-tab="show-qr-tab"]').click();
-                                        qrStatus.className = 'status info';
-                                        qrStatus.textContent = 'Waiting for the other person to scan your QR code...';
+                                    // Double-check we're still not in critical phase
+                                    if (!isInCriticalHandshakePhase()) {
+                                        generateQRCode();
+                                        
+                                        // Only switch to QR tab and show warning on initial attempts
+                                        if (isInitialAttempt) {
+                                            // Update UI to show new QR code
+                                            document.querySelector('[data-tab="show-qr-tab"]').click();
+                                            qrStatus.className = 'status info';
+                                            qrStatus.textContent = 'Waiting for the other person to scan your QR code...';
+                                        }
+                                    } else {
+                                        logDebug('PROTECTED QR code from regeneration in timeout');
                                     }
                                 }, 1000);
                             } else if (inCriticalHandshakePhase) {
-                                logDebug('In critical handshake phase - NOT regenerating QR code');
+                                logDebug('CRITICAL HANDSHAKE PROTECTION - NOT regenerating QR code');
                                 qrStatus.className = 'status info';
                                 qrStatus.textContent = 'Waiting for other person to scan your QR code...';
                             }
