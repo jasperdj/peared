@@ -238,7 +238,7 @@
     </style>
 </head>
 <body>
-    <h1>Peared v1.0</h1>
+    <h1>Peared</h1>
     <div class="subtitle">Secure P2P Messaging</div>
     <div class="card">
         <h2>Step 1: Initialize WebRTC</h2>
@@ -825,7 +825,7 @@
                 // Detect mobile devices - mobile browsers may need special handling
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
                 
-                if (1==2) { // isMobile
+                if (isMobile) {
                     logDebug('Mobile device detected, using canvas-based QR code generation');
                     // Try canvas-based QR generation which is more reliable on mobile
                     generateCanvasQRCode(qrPlaceholder, finalDataToUse, 256);
