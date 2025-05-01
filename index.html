@@ -238,7 +238,7 @@
     </style>
 </head>
 <body>
-    <h1>Peared</h1>
+    <h1>Peared 1.1</h1>
     <div class="subtitle">Secure P2P Messaging</div>
     <div class="card">
         <h2>Step 1: Initialize WebRTC</h2>
@@ -825,7 +825,7 @@
                 // Detect mobile devices - mobile browsers may need special handling
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
                 
-                if (isMobile) {
+                if (1==2) {
                     logDebug('Mobile device detected, using canvas-based QR code generation');
                     // Try canvas-based QR generation which is more reliable on mobile
                     generateCanvasQRCode(qrPlaceholder, finalDataToUse, 256);
@@ -838,8 +838,8 @@
                                 try {
                                     new QRCode(qrPlaceholder, {
                                         text: finalDataToUse,
-                                        width: 256,
-                                        height: 256,
+                                        width: 356,
+                                        height: 356,
                                         colorDark: "#000000",
                                         colorLight: "#ffffff",
                                         correctLevel: QRCode.CorrectLevel.L  // Use lowest error correction for larger capacity
@@ -848,7 +848,7 @@
                                 } catch (qrLibError) {
                                     logDebug(`Standard QR library failed: ${qrLibError.message}`);
                                     // Fallback to canvas
-                                    generateCanvasQRCode(qrPlaceholder, finalDataToUse, 256);
+                                    generateCanvasQRCode(qrPlaceholder, finalDataToUse, 356);
                                 }
                             }, 100); // Small delay to ensure DOM is ready
                         } else {
