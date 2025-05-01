@@ -766,9 +766,6 @@
                     throw new Error('WebRTC not initialized yet. Please wait a moment.');
                 }
                 
-                // Mark that a QR code was scanned
-                state.qrCodeScanned = true;
-                
                 // Store this connection data for potential reconnection
                 state.lastConnectionData = JSON.parse(JSON.stringify(connectionData));
                 
@@ -814,11 +811,10 @@
                     logDebug('Processing received offer and creating answer');
                     const answerData = await processOffer(standardFormat);
                     
-                    // Mark that we've processed their QR code
-                    state.otherQrScanned = true;
+                    // Mark that we've scanned their QR code (before showing our answer)
+                    state.qrCodeScanned = true;
                     
-                    // Since we're using QR codes, we need to show our answer QR code
-                    // for the other person to scan
+                    // Clear previous QR code to prepare for our answer QR code
                     qrcodeDiv.innerHTML = '';
                     
                     try {
@@ -830,6 +826,9 @@
                         
                         qrStatus.className = 'status success';
                         qrStatus.textContent = 'Answer created! Have the other person scan this QR code to complete the connection.';
+                        
+                        // Log that we're entering the critical handshake phase
+                        logDebug('Entered critical handshake phase: We scanned their QR, they need to scan ours');
                     } catch (e) {
                         console.error('Error creating answer QR code:', e);
                         
@@ -852,6 +851,9 @@
                     
                     // Stop streaming QR codes once we've received an answer
                     stopQRStreaming();
+                    
+                    // Log that we've completed the handshake
+                    logDebug('Handshake completed: They scanned our QR code with their answer');
                 }
                 
             } catch (error) {
@@ -1557,6 +1559,11 @@
                 // Don't show UI changes if we're just doing routine restarts
                 const isInitialAttempt = state.reconnectAttempts <= 1;
                 
+                // Critical handshake state: We've scanned their QR code and created an answer
+                // but they haven't yet scanned our answer QR code. We must NOT regenerate the QR
+                // during this phase as it would break the connection flow.
+                const inCriticalHandshakePhase = state.qrCodeScanned && !state.otherQrScanned;
+                
                 // Only the initiator can create a new offer with ICE restart
                 if (state.initiator) {
                     logDebug('Attempting ICE restart as initiator');
@@ -1571,8 +1578,9 @@
                             state.localIceCandidates = [];
                             
                             // Update QR code with new offer only if we need to show it
-                            // (i.e., if the other person hasn't scanned our code yet)
-                            if (!state.otherQrScanned) {
+                            // AND we're not in the critical handshake phase
+                            if (!state.otherQrScanned && !inCriticalHandshakePhase) {
+                                logDebug('Regenerating QR code after ICE restart');
                                 setTimeout(() => {
                                     generateQRCode();
                                     
@@ -1584,6 +1592,10 @@
                                         qrStatus.textContent = 'Waiting for the other person to scan your QR code...';
                                     }
                                 }, 1000);
+                            } else if (inCriticalHandshakePhase) {
+                                logDebug('In critical handshake phase - NOT regenerating QR code');
+                                qrStatus.className = 'status info';
+                                qrStatus.textContent = 'Waiting for other person to scan your QR code...';
                             }
                         })
                         .catch((error) => {
@@ -1619,10 +1631,14 @@
                         logDebug('Could not create temp channel: ' + e.message);
                     }
                     
-                    // Only update status on initial attempts
+                    // Only update status on initial attempts, but don't change QR code in critical phase
                     if (isInitialAttempt) {
-                        qrStatus.className = 'status info';
-                        qrStatus.textContent = 'Waiting for connection to be reestablished...';
+                        if (!inCriticalHandshakePhase) {
+                            qrStatus.className = 'status info';
+                            qrStatus.textContent = 'Waiting for connection to be reestablished...';
+                        } else {
+                            logDebug('In critical handshake phase - keeping current QR code stable');
+                        }
                     }
                 }
             } catch (error) {
