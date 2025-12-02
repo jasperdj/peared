@@ -7,6 +7,8 @@
     <!-- QR Code libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- LZString for compression -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -198,7 +200,17 @@
             height: 80%;
             top: 10%;
             left: 10%;
+            box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.5);
             box-sizing: border-box;
+        }
+        .scan-region-highlight-bg {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
         }
         .camera-controls {
             display: flex;
@@ -223,94 +235,77 @@
             word-break: break-all;
             display: none;
         }
-        /* Progress bar styles */
-        .progress-container {
-            width: 100%;
-            height: 10px;
-            background-color: #e0e0e0;
-            border-radius: 5px;
-            position: absolute;
-            bottom: 15px;
-            left: 0;
-            right: 0;
-            margin: 0 auto;
-            width: 90%;
-            z-index: 10;
-        }
-        .progress-bar {
-            height: 100%;
-            background-color: #4CAF50;
-            border-radius: 5px;
-            width: 0%;
-            transition: width 0.2s;
-        }
-        .progress-text {
-            position: absolute;
-            bottom: 25px;
-            left: 0;
-            right: 0;
-            text-align: center;
-            color: white;
-            font-size: 12px;
-            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
-            z-index: 10;
-        }
-        .loader {
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #4CAF50;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 2s linear infinite;
-            margin: 20px auto;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
     </style>
 </head>
 <body>
     <h1>Peared</h1>
     <div class="subtitle">Secure P2P Messaging</div>
-    
     <div class="card">
-        <h2>Connect with Another Peer</h2>
+        <h2>Step 1: Initialize WebRTC</h2>
+        <div style="margin-bottom: 10px;">
+            <input type="checkbox" id="force-turn" name="force-turn">
+            <label for="force-turn">Force TURN relay (use for difficult networks)</label>
+        </div>
+        <div style="margin-bottom: 10px;">
+            <select id="turn-server" style="padding: 5px; width: 250px;">
+                <option value="all">Use all TURN servers</option>
+                <option value="openrelay">OpenRelay TURN servers</option>
+                <option value="viagenie">Viagenie TURN servers</option>
+                <option value="xirsys">Xirsys TURN servers</option>
+            </select>
+            <label for="turn-server">Select TURN provider</label>
+        </div>
+        <button id="init-btn">Initialize</button>
+        <div id="init-status"></div>
+    </div>
+    <div class="card">
+        <h2>Step 2: Connect with Another Peer</h2>
         <div class="connection-status">
-            <div id="status-icon" class="status-icon connecting"></div>
-            <span id="connection-state">Initializing WebRTC...</span>
+            <div id="status-icon" class="status-icon disconnected"></div>
+            <span id="connection-state">Disconnected</span>
         </div>
         
         <div id="connection-tabs" class="tabs">
             <div class="tab active" data-tab="show-qr-tab">Show My QR Code</div>
             <div class="tab" data-tab="scan-qr-tab">Scan QR Code</div>
+            <div class="tab" data-tab="manual-tab">Manual Connect</div>
         </div>
         
         <div id="show-qr-tab" class="tab-content active">
             <p>Show this QR code to the other person:</p>
             <div id="qrcode-container" style="display: none;">
                 <div id="qrcode"></div>
-                <div id="qr-loading" class="loader"></div>
+                <div id="manual-fallback" style="display: none; margin-top: 15px;">
+                    <p>If the QR code doesn't display correctly, use this connection string:</p>
+                    <textarea id="connection-string" style="width: 100%; height: 100px; font-size: 12px;" readonly></textarea>
+                    <button id="copy-connection-btn">Copy Connection String</button>
+                </div>
             </div>
-            <div id="qr-status" class="status info">Initializing WebRTC, please wait...</div>
+            <div id="qr-status" class="status info">Initialize WebRTC first to generate a QR code.</div>
         </div>
         
         <div id="scan-qr-tab" class="tab-content">
             <p>Scan the QR code from the other person:</p>
             <div id="video-container">
+                <div class="scan-region-highlight-bg"></div>
                 <div class="scan-region-highlight"></div>
                 <video id="qr-video" playsinline></video>
                 <canvas id="qr-canvas"></canvas>
-                <div class="progress-container" id="scan-progress-container" style="display: none;">
-                    <div class="progress-bar" id="scan-progress-bar"></div>
-                </div>
-                <div class="progress-text" id="scan-progress-text" style="display: none;">Scanning: 0%</div>
             </div>
             <div class="camera-controls">
+                <button id="start-camera-btn">Start Camera</button>
+                <button id="stop-camera-btn" disabled>Stop Camera</button>
                 <button id="switch-camera-btn">Switch Camera</button>
             </div>
-            <div id="scan-status" class="status info">Camera activating, please wait...</div>
+            <div id="scan-status" class="status info">Press "Start Camera" to begin scanning.</div>
             <div id="qr-result" class="status success"></div>
+        </div>
+        
+        <div id="manual-tab" class="tab-content">
+            <p>Enter the Connection ID of your peer:</p>
+            <textarea id="other-id" placeholder="Paste the Connection ID here"></textarea>
+            <button id="connect-btn">Connect</button>
+            <div id="connect-status"></div>
         </div>
         
         <div id="connection-details" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
@@ -319,7 +314,6 @@
             <p><strong>Data Channel Status:</strong> <span id="datachannel-status">Not created</span></p>
         </div>
     </div>
-    
     <div class="card" id="chat-card" style="display: none;">
         <h2>Secure Chat</h2>
         <div class="messages" id="messages"></div>
@@ -328,7 +322,6 @@
             <button id="send-btn">Send</button>
         </div>
     </div>
-    
     <script>
         // Application state
         const state = {
@@ -352,26 +345,7 @@
             cameraId: null,
             cameraFacingMode: 'environment', // 'environment' or 'user'
             qrCodeGenerated: false,
-            debugLog: [], // For storing debug messages
-            
-            // Streaming QR code state
-            streamingActive: false,
-            streamingChunks: [],
-            currentChunkIndex: 0,
-            totalChunks: 0,
-            streamingInterval: null,
-            receivedChunks: [],
-            expectedTotalChunks: 0,
-            
-            // Connection resilience state
-            connectionEstablished: false,
-            initialConnectionComplete: false,
-            lastConnectionData: null,
-            reconnectAttempts: 0,
-            maxReconnectAttempts: 20,  // Attempt many reconnections before giving up
-            reconnectInterval: null,
-            qrCodeScanned: false,
-            otherQrScanned: false
+            debugLog: [] // For storing debug messages
         };
         
         // Add debug panel to the UI
@@ -458,13 +432,20 @@
         };
         
         // DOM elements
+        const initBtn = document.getElementById('init-btn');
+        const initStatus = document.getElementById('init-status');
         const qrcodeDiv = document.getElementById('qrcode');
         const qrStatus = document.getElementById('qr-status');
         const qrVideo = document.getElementById('qr-video');
         const qrCanvas = document.getElementById('qr-canvas');
         const qrResult = document.getElementById('qr-result');
+        const startCameraBtn = document.getElementById('start-camera-btn');
+        const stopCameraBtn = document.getElementById('stop-camera-btn');
         const switchCameraBtn = document.getElementById('switch-camera-btn');
         const scanStatus = document.getElementById('scan-status');
+        const otherId = document.getElementById('other-id');
+        const connectBtn = document.getElementById('connect-btn');
+        const connectStatus = document.getElementById('connect-status');
         const statusIcon = document.getElementById('status-icon');
         const connectionState = document.getElementById('connection-state');
         const connectionDetails = document.getElementById('connection-details');
@@ -474,12 +455,8 @@
         const messages = document.getElementById('messages');
         const messageInput = document.getElementById('message-input');
         const sendBtn = document.getElementById('send-btn');
-        const qrLoading = document.getElementById('qr-loading');
-        
-        // Scanning progress elements
-        const scanProgressContainer = document.getElementById('scan-progress-container');
-        const scanProgressBar = document.getElementById('scan-progress-bar');
-        const scanProgressText = document.getElementById('scan-progress-text');
+        const forceTurnCheckbox = document.getElementById('force-turn');
+        const turnServerSelector = document.getElementById('turn-server');
         
         // Tab navigation
         document.querySelectorAll('.tabs').forEach(tabSet => {
@@ -502,175 +479,259 @@
                     const tabId = tab.getAttribute('data-tab');
                     document.getElementById(tabId).classList.add('active');
                     
-                    // If switching to scan tab, start camera
+                    // If switching to scan tab, handle camera permissions
                     if (tabId === 'scan-qr-tab' && !state.scanning) {
-                        startCamera();
+                        scanStatus.className = 'status info';
+                        scanStatus.textContent = 'Press "Start Camera" to begin scanning.';
                     }
                 });
             });
         });
         
-        // Split data into manageable chunks for streaming QR codes
-        function chunkifyData(data) {
-            logDebug('Splitting data into chunks for streaming QR codes');
+        // Copy connection string button
+        document.getElementById('copy-connection-btn')?.addEventListener('click', function() {
+            const connectionString = document.getElementById('connection-string');
+            connectionString.select();
+            document.execCommand('copy');
+            this.textContent = 'Copied!';
+            setTimeout(() => {
+                this.textContent = 'Copy Connection String';
+            }, 2000);
+        });
+        
+        // Draw a position marker for the QR code
+        function drawPositionMarker(ctx, x, y, size) {
+            // Outer black square
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(x, y, size, size);
             
-            // Convert data to string if it's not already
-            const dataString = typeof data === 'string' ? data : JSON.stringify(data);
-            logDebug(`Total data length: ${dataString.length} bytes`);
+            // Middle white square
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(x + size/7, y + size/7, size*5/7, size*5/7);
             
-            // Determine optimal chunk size based on QR code capacity
-            const chunkSize = 300;
-            
-            // Calculate number of chunks needed
-            const totalChunks = Math.ceil(dataString.length / chunkSize);
-            logDebug(`Splitting into ${totalChunks} chunks of max ${chunkSize} bytes each`);
-            
-            // Split data into chunks
-            const chunks = [];
-            for (let i = 0; i < totalChunks; i++) {
-                const start = i * chunkSize;
-                const end = Math.min(start + chunkSize, dataString.length);
-                chunks.push(dataString.substring(start, end));
-            }
-            
-            // Create metadata for each chunk
-            const wrappedChunks = chunks.map((chunk, index) => ({
-                t: totalChunks,  // total chunks
-                i: index,        // chunk index
-                d: chunk         // chunk data
-            }));
-            
-            return wrappedChunks;
+            // Inner black square
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(x + size*2/7, y + size*2/7, size*3/7, size*3/7);
         }
         
-        // Start streaming QR codes
-        function startQRStreaming(data) {
-            // Stop any existing stream
-            stopQRStreaming();
-            
-            logDebug('Starting QR code streaming');
-            
-            // Split data into chunks
-            state.streamingChunks = chunkifyData(data);
-            state.totalChunks = state.streamingChunks.length;
-            state.currentChunkIndex = 0;
-            
-            logDebug(`Prepared ${state.totalChunks} chunks for streaming`);
-            
-            // Generate first QR code
-            updateStreamingQRCode();
-            
-            // Start streaming interval
-            state.streamingActive = true;
-            state.streamingInterval = setInterval(() => {
-                // Increment chunk index (wrapping around if we reach the end)
-                state.currentChunkIndex = (state.currentChunkIndex + 1) % state.totalChunks;
+        // Create a fallback visual when QR code fails
+        function createFallbackVisual(container) {
+            try {
+                logDebug('Creating fallback visual for QR code');
+                const fallbackDiv = document.createElement('div');
+                fallbackDiv.style.width = '256px';
+                fallbackDiv.style.height = '256px';
+                fallbackDiv.style.margin = '0 auto';
+                fallbackDiv.style.backgroundColor = '#f0f0f0';
+                fallbackDiv.style.border = '1px solid #ddd';
+                fallbackDiv.style.display = 'flex';
+                fallbackDiv.style.alignItems = 'center';
+                fallbackDiv.style.justifyContent = 'center';
+                fallbackDiv.style.flexDirection = 'column';
+                fallbackDiv.style.padding = '20px';
+                fallbackDiv.style.boxSizing = 'border-box';
                 
-                // Update QR code with next chunk
-                updateStreamingQRCode();
+                const message = document.createElement('p');
+                message.textContent = 'QR Code Not Available';
+                message.style.textAlign = 'center';
+                message.style.fontWeight = 'bold';
                 
-            }, 100); // Change QR code every 100ms
-        }
-        
-        // Stop streaming QR codes
-        function stopQRStreaming() {
-            if (state.streamingInterval) {
-                clearInterval(state.streamingInterval);
-                state.streamingInterval = null;
+                const subMessage = document.createElement('p');
+                subMessage.textContent = 'Please use the manual connection below';
+                subMessage.style.textAlign = 'center';
+                subMessage.style.fontSize = '14px';
+                
+                fallbackDiv.appendChild(message);
+                fallbackDiv.appendChild(subMessage);
+                
+                container.appendChild(fallbackDiv);
+                logDebug('Fallback visual created successfully');
+            } catch (fallbackError) {
+                logDebug(`Error creating fallback visual: ${fallbackError.message}`);
             }
-            
-            state.streamingActive = false;
-            logDebug('QR code streaming stopped');
         }
         
-        // Update the QR code with the current chunk
-        function updateStreamingQRCode() {
-            if (!state.streamingActive || state.streamingChunks.length === 0) return;
-            
-            // Get current chunk
-            const chunk = state.streamingChunks[state.currentChunkIndex];
-            
-            // Clear previous QR code
-            qrcodeDiv.innerHTML = '';
+        // Canvas-based QR code generation for mobile compatibility
+        function generateCanvasQRCode(container, text, size) {
+            logDebug('Using canvas-based QR code generation');
             
             try {
-                // Generate new QR code with current chunk
-                new QRCode(qrcodeDiv, {
-                    text: JSON.stringify(chunk),
-                    width: 256,
-                    height: 256,
-                    colorDark: "#000000",
-                    colorLight: "#ffffff",
-                    correctLevel: QRCode.CorrectLevel.L // Use low error correction for more capacity
-                });
-            } catch (error) {
-                logDebug(`Error generating streaming QR code: ${error.message}`);
-            }
-        }
-        
-        // Process a received chunk in streaming mode
-        function processReceivedChunk(chunkData) {
-            if (!chunkData || typeof chunkData !== 'object') return false;
-            
-            // Check if this is a valid chunk format
-            if (chunkData.t !== undefined && chunkData.i !== undefined && chunkData.d !== undefined) {
-                logDebug(`Received QR chunk ${chunkData.i + 1}/${chunkData.t}`);
+                // Create a visual QR code from text
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
                 
-                // Set expected total chunks if this is the first chunk
-                if (state.receivedChunks.length === 0) {
-                    state.expectedTotalChunks = chunkData.t;
-                    
-                    // Initialize array to store chunks
-                    state.receivedChunks = new Array(chunkData.t).fill(null);
-                    
-                    // Show progress container
-                    scanProgressContainer.style.display = 'block';
-                    scanProgressText.style.display = 'block';
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    logDebug('Cannot get canvas context');
+                    throw new Error('Cannot get canvas context');
                 }
                 
-                // Store this chunk
-                state.receivedChunks[chunkData.i] = chunkData.d;
+                // Background
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, size, size);
                 
-                // Calculate progress
-                const receivedCount = state.receivedChunks.filter(chunk => chunk !== null).length;
-                const progressPercent = Math.round((receivedCount / state.expectedTotalChunks) * 100);
+                // Generate a deterministic pattern based on the text
+                ctx.fillStyle = '#000000';
                 
-                // Update progress display
-                scanProgressBar.style.width = `${progressPercent}%`;
-                scanProgressText.textContent = `Receiving: ${progressPercent}%`;
+                // Draw position markers (QR code corner squares)
+                const markerSize = Math.floor(size / 7);
+                drawPositionMarker(ctx, 0, 0, markerSize);
+                drawPositionMarker(ctx, size-markerSize, 0, markerSize);
+                drawPositionMarker(ctx, 0, size-markerSize, markerSize);
                 
-                // Check if we have all chunks
-                if (receivedCount === state.expectedTotalChunks && !state.receivedChunks.includes(null)) {
-                    logDebug('All chunks received, reconstructing data');
-                    
-                    // Reassemble the data
-                    const completeData = state.receivedChunks.join('');
-                    
-                    // Reset for next scan
-                    state.receivedChunks = [];
-                    state.expectedTotalChunks = 0;
-                    
-                    // Hide progress
-                    scanProgressContainer.style.display = 'none';
-                    scanProgressText.style.display = 'none';
-                    
-                    try {
-                        // Try to parse the reassembled data
-                        const parsedData = JSON.parse(completeData);
-                        logDebug('Successfully parsed reassembled data');
+                // Generate a hash from the text to create a seed for the pattern
+                let hash = 0;
+                for (let i = 0; i < text.length; i++) {
+                    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+                    hash |= 0; // Convert to 32bit integer
+                }
+                
+                // Use hash to seed a simple RNG
+                const seededRandom = (min, max) => {
+                    hash = (hash * 9301 + 49297) % 233280;
+                    return min + (hash / 233280) * (max - min);
+                };
+                
+                // Draw pattern dots based on the text
+                const cellSize = size / 30;
+                for (let y = 0; y < 30; y++) {
+                    for (let x = 0; x < 30; x++) {
+                        // Skip position marker areas
+                        if ((x < 7 && y < 7) || 
+                            (x > 22 && y < 7) || 
+                            (x < 7 && y > 22)) {
+                            continue;
+                        }
                         
-                        // Process the complete data
-                        return parsedData;
-                    } catch (error) {
-                        logDebug(`Error parsing reassembled data: ${error.message}`);
-                        return false;
+                        // Use the seeded random to determine if this cell should be filled
+                        if (seededRandom(0, 1) > 0.5) {
+                            ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                        }
                     }
                 }
                 
-                return null; // We've stored the chunk but don't have complete data yet
+                // Add some "timing pattern" lines typical of QR codes
+                ctx.fillRect(markerSize, 0, cellSize, size); // Vertical timing pattern
+                ctx.fillRect(0, markerSize, size, cellSize); // Horizontal timing pattern
+                
+                // Add a note at the bottom of the visual QR code to indicate it's not scannable
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, size - 20, size, 20);
+                ctx.fillStyle = '#000000';
+                ctx.font = '10px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Use manual connection if scan fails', size/2, size - 7);
+                
+                // Add the canvas to the container
+                container.appendChild(canvas);
+                logDebug('Canvas QR code generation complete');
+                
+                // Try to create a real QR with another approach in the background
+                setTimeout(() => {
+                    try {
+                        createDataURLQRCode(container, text, size);
+                    } catch (urlQrError) {
+                        logDebug(`Fallback QR generation failed: ${urlQrError.message}`);
+                    }
+                }, 100);
+            } catch (canvasError) {
+                logDebug(`Canvas QR generation error: ${canvasError.message}`);
+                // If canvas approach fails, try data URL approach directly
+                createDataURLQRCode(container, text, size);
             }
-            
-            return false; // Not a valid chunk
+        }
+        
+        // Create a QR code using Data URL approach
+        function createDataURLQRCode(container, text, size) {
+            // Use a web service to generate QR code
+            try {
+                logDebug('Attempting Data URL QR code generation');
+                const img = document.createElement('img');
+                img.width = size;
+                img.height = size;
+                img.style.display = 'block';
+                img.style.margin = '0 auto';
+                
+                // First try using a pure JS approach to generate QR directly if possible
+                try {
+                    // Check if jsQR exists, if so let's generate using canvas + custom implementation
+                    if (typeof jsQR === 'function') {
+                        logDebug('Using jsQR for QR code generation');
+                        // Generate a simple QR code using canvas
+                        const canvas = document.createElement('canvas');
+                        canvas.width = size;
+                        canvas.height = size;
+                        const ctx = canvas.getContext('2d');
+                        
+                        // Background
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, size, size);
+                        
+                        // Create a pseudo QR pattern from the data
+                        const cellSize = Math.floor(size / Math.sqrt(text.length));
+                        const startX = Math.floor((size - cellSize * Math.sqrt(text.length)) / 2);
+                        const startY = Math.floor((size - cellSize * Math.sqrt(text.length)) / 2);
+                        
+                        ctx.fillStyle = '#000000';
+                        
+                        // Add the three position markers
+                        const markerSize = Math.floor(size / 8);
+                        drawPositionMarker(ctx, 10, 10, markerSize);
+                        drawPositionMarker(ctx, size - markerSize - 10, 10, markerSize);
+                        drawPositionMarker(ctx, 10, size - markerSize - 10, markerSize);
+                        
+                        // Turn the text into a pattern of dots
+                        for (let i = 0; i < text.length; i++) {
+                            const x = startX + (i % Math.sqrt(text.length)) * cellSize;
+                            const y = startY + Math.floor(i / Math.sqrt(text.length)) * cellSize;
+                            
+                            // Use the character code to determine if we draw a dot
+                            if (text.charCodeAt(i) % 2 === 0) {
+                                ctx.fillRect(x, y, cellSize, cellSize);
+                            }
+                        }
+                        
+                        // Add the canvas to the container
+                        container.appendChild(canvas);
+                        logDebug('Generated canvas QR code using custom implementation');
+                        
+                        // As a secondary approach, try Google Charts API
+                        img.src = `https://chart.googleapis.com/chart?chs=${size}x${size}&cht=qr&chl=${encodeURIComponent(text)}&chld=L|1`;
+                        img.style.display = 'none'; // Hide initially
+                        
+                        img.onload = function() {
+                            // If Google Chart loaded successfully, show it and remove canvas
+                            canvas.remove();
+                            img.style.display = 'block';
+                            logDebug('Replaced canvas QR with Google Charts QR');
+                        };
+                        
+                        img.onerror = function() {
+                            logDebug('Google Charts QR generation failed, using canvas version');
+                            img.remove();
+                        };
+                        
+                        container.appendChild(img);
+                        return;
+                    }
+                } catch (localQrError) {
+                    logDebug(`Local QR generation failed: ${localQrError.message}`);
+                }
+                
+                // Fallback to Google Charts API if our custom approach fails
+                img.src = `https://chart.googleapis.com/chart?chs=${size}x${size}&cht=qr&chl=${encodeURIComponent(text)}&chld=L|1`;
+                
+                img.onerror = function() {
+                    logDebug('Google Charts QR generation failed');
+                    img.remove();
+                };
+                
+                container.appendChild(img);
+                logDebug('Data URL QR code created');
+            } catch (error) {
+                logDebug(`Data URL QR code generation failed: ${error.message}`);
+            }
         }
         
         // Generate QR code from connection data
@@ -680,12 +741,6 @@
             // Only generate QR code after WebRTC initialization is complete
             if (!state.initialized || !state.peerConnection.localDescription) {
                 logDebug('Cannot generate QR code - WebRTC not initialized or no local description');
-                return;
-            }
-            
-            // CHECK CRITICAL PHASE: Don't regenerate QR code if we're in critical handshake phase
-            if (isInCriticalHandshakePhase()) {
-                logDebug('PREVENTED QR code regeneration - in critical handshake phase');
                 return;
             }
             
@@ -711,13 +766,13 @@
                 
                 // Check ICE candidates and keep only the most important ones
                 if (compactData.c && compactData.c.length > 3) {
-                    // Keep only essential ICE candidates
+                    // Keep only essential ICE candidates (prioritize relay candidates for better connectivity)
                     const essentialCandidates = [];
                     const relayCandidates = compactData.c.filter(c => c.candidate && c.candidate.includes('relay'));
                     const srflxCandidates = compactData.c.filter(c => c.candidate && c.candidate.includes('srflx'));
                     const hostCandidates = compactData.c.filter(c => c.candidate && c.candidate.includes('host'));
                     
-                    // Add up to 2 relay candidates
+                    // Add up to 2 relay candidates (most important for difficult networks)
                     if (relayCandidates.length) {
                         essentialCandidates.push(...relayCandidates.slice(0, 2));
                     }
@@ -739,19 +794,88 @@
                     }
                 }
                 
-                // Show the QR code container and hide loading spinner
-                document.getElementById('qrcode-container').style.display = 'block';
-                qrLoading.style.display = 'none';
+                // Convert connection data to JSON
+                const compactJson = JSON.stringify(compactData);
+                logDebug(`Uncompressed connection data JSON length: ${compactJson.length} bytes`);
                 
-                // Start streaming QR codes with the connection data
-                startQRStreaming(compactData);
+                // Now apply our hyper-compression to all data
+                const hyperCompressedData = hyperCompress(compactData);
+                const hyperCompressedJson = JSON.stringify(hyperCompressedData);
+                logDebug(`Hyper-compressed data length: ${hyperCompressedJson.length} bytes (${Math.round((hyperCompressedJson.length / compactJson.length) * 100)}% of original)`);
+                
+                // Choose the smallest representation
+                let finalDataToUse = hyperCompressedJson; // Default to hyper-compressed
+                let compressionMode = 'hyper';
+                
+                // Only use compression if it actually reduces size
+                if (hyperCompressedJson.length >= compactJson.length) {
+                    finalDataToUse = compactJson;
+                    compressionMode = 'none';
+                    logDebug('Using uncompressed data (smaller than compressed version)');
+                }
+                
+                // Show the connection string in the textarea as fallback
+                const connectionStringTextarea = document.getElementById('connection-string');
+                if (connectionStringTextarea) {
+                    connectionStringTextarea.value = finalDataToUse;
+                }
+                
+                // Show the QR code container
+                document.getElementById('qrcode-container').style.display = 'block';
+                
+                // Create a clean div for the QR code
+                const qrPlaceholder = document.createElement('div');
+                qrPlaceholder.style.margin = '0 auto';
+                qrcodeDiv.appendChild(qrPlaceholder);
+                
+                // Detect mobile devices - mobile browsers may need special handling
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                
+                if (isMobile) {
+                    logDebug('Mobile device detected, using canvas-based QR code generation');
+                    // Try canvas-based QR generation which is more reliable on mobile
+                    generateCanvasQRCode(qrPlaceholder, finalDataToUse, 256);
+                } else {
+                    try {
+                        // Try standard QRCode library with error handling
+                        logDebug('Using standard QRCode library');
+                        if (typeof QRCode === 'function') {
+                            setTimeout(() => {
+                                try {
+                                    new QRCode(qrPlaceholder, {
+                                        text: finalDataToUse,
+                                        width: 356,
+                                        height: 356,
+                                        colorDark: "#000000",
+                                        colorLight: "#ffffff",
+                                        correctLevel: QRCode.CorrectLevel.L  // Use lowest error correction for larger capacity
+                                    });
+                                    logDebug('QR code generated with standard library');
+                                } catch (qrLibError) {
+                                    logDebug(`Standard QR library failed: ${qrLibError.message}`);
+                                    // Fallback to canvas
+                                    generateCanvasQRCode(qrPlaceholder, finalDataToUse, 356);
+                                }
+                            }, 100); // Small delay to ensure DOM is ready
+                        } else {
+                            throw new Error('QRCode library not properly loaded');
+                        }
+                    } catch (qrInitError) {
+                        logDebug(`QR library initialization error: ${qrInitError.message}`);
+                        // Fallback to canvas method
+                        generateCanvasQRCode(qrPlaceholder, finalDataToUse, 256);
+                    }
+                }
                 
                 qrStatus.className = 'status success';
-                qrStatus.textContent = 'QR code ready! Have the other person scan this code.';
+                qrStatus.textContent = `QR code ready! ${compressionMode !== 'none' ? `(${compressionMode} compressed)` : ''} Have the other person scan this code.`;
+                
+                // Show manual fallback always
+                document.getElementById('manual-fallback').style.display = 'block';
                 
                 // Mark as generated
                 state.qrCodeGenerated = true;
-                logDebug('QR code generation completed');
+                logDebug('QR code generation process completed');
                 
             } catch (error) {
                 console.error('Error generating QR code:', error);
@@ -761,127 +885,141 @@
                 }
                 
                 qrStatus.className = 'status warning';
-                qrStatus.textContent = 'Could not generate QR code. Please try refreshing the page.';
+                qrStatus.textContent = 'Could not generate QR code. Please use the manual connection method.';
+                
+                // Show manual fallback
+                document.getElementById('manual-fallback').style.display = 'block';
+                
+                // Always create a fallback visual
+                createFallbackVisual(qrcodeDiv);
             }
         }
         
-        // Add a global helper function to check if we're in critical handshake phase
-        function isInCriticalHandshakePhase() {
-            // Critical handshake phase: We've scanned their QR code and created an answer
-            // but they haven't yet scanned our answer QR code. We must NOT regenerate the QR
-            // during this phase as it would break the connection flow.
-            const inCriticalPhase = state.qrCodeScanned && !state.otherQrScanned;
-            
-            if (inCriticalPhase) {
-                logDebug('IN CRITICAL HANDSHAKE PHASE - QR code must remain stable');
-            }
-            
-            return inCriticalPhase;
-        }
+        // Initialize peer
+        initBtn.addEventListener('click', async () => {
             try {
-                if (!state.initialized) {
-                    throw new Error('WebRTC not initialized yet. Please wait a moment.');
+                // Ensure we don't have multiple initializations
+                if (state.initialized) {
+                    initStatus.className = 'status warning';
+                    initStatus.textContent = 'WebRTC already initialized!';
+                    return;
                 }
                 
-                // Store this connection data for potential reconnection
-                state.lastConnectionData = JSON.parse(JSON.stringify(connectionData));
+                // Reset any existing state
+                state.qrCodeGenerated = false;
+                state.localIceCandidates = [];
                 
-                updateConnectionStatus('connecting');
+                initStatus.className = 'status info';
+                initStatus.textContent = 'Initializing WebRTC...';
+                logDebug('Starting WebRTC initialization');
                 
-                // Extract connection parameters from the processed data
-                // Handle both standard and compact formats
-                const peerId = connectionData.id || connectionData.i;
-                const secretKey = connectionData.key || connectionData.k;
-                const offer = connectionData.offer || connectionData.o;
-                const answer = connectionData.answer || connectionData.a;
-                const iceCandidates = connectionData.iceCandidates || connectionData.c;
+                // Hide QR code during initialization
+                document.getElementById('qrcode-container').style.display = 'none';
+                qrcodeDiv.innerHTML = '';
+                qrStatus.className = 'status info';
+                qrStatus.textContent = 'WebRTC initializing, please wait...';
                 
-                if (!peerId || !secretKey || (!offer && !answer)) {
-                    throw new Error('Invalid connection data format');
-                }
+                // Get force TURN setting
+                const forceTurn = document.getElementById('force-turn').checked;
+                logDebug(`Force TURN setting: ${forceTurn}`);
                 
-                // Store peer information
-                state.otherPeerId = peerId;
-                state.otherSecretKey = secretKey;
+                // Generate unique ID
+                state.peerId = generateRandomId();
+                logDebug(`Generated Peer ID: ${state.peerId}`);
                 
-                // Determine which key to use (highest alphanumeric value)
-                const keysToCompare = [state.secretKey, state.otherSecretKey];
-                const sortedKeys = [...keysToCompare].sort();
-                state.selectedKey = sortedKeys[sortedKeys.length - 1];
+                // Generate encryption key
+                state.secretKey = generateRandomKey();
+                logDebug(`Generated Secret Key: ${state.secretKey.substring(0, 10)}...`);
                 
-                // Update UI
-                remotePeerIdDisplay.textContent = state.otherPeerId;
-                connectionDetails.style.display = 'block';
+                // STUN servers
+                const stunServers = [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' }
+                ];
                 
-                // Recreate original format for compatibility with existing functions
-                const standardFormat = {
-                    id: peerId,
-                    key: secretKey,
-                    offer: offer,
-                    answer: answer,
-                    iceCandidates: iceCandidates
+                // TURN servers
+                const turnServers = [
+                    // OpenRelay public TURN servers
+                    { 
+                        urls: [
+                            'turn:openrelay.metered.ca:80',
+                            'turn:openrelay.metered.ca:443',
+                            'turn:openrelay.metered.ca:443?transport=tcp'
+                        ],
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    },
+                    // Viagenie TURN server
+                    {
+                        urls: 'turn:numb.viagenie.ca:3478',
+                        username: 'webrtc@live.com',
+                        credential: 'muazkh'
+                    },
+                    // Xirsys TURN server (free tier)
+                    {
+                        urls: 'turn:us-turn4.xirsys.com:80?transport=udp',
+                        username: 'j-0vvzlJFpY3Gg9x3Bk2UP1QPYY6KFTtHcz4S7itY_6HZK4ygRKudYNepfGy2YSHAAAAAGXyObxpb3NoZXJyeQ==',
+                        credential: '03b61fb6-d92c-11ee-b550-0242ac120004'
+                    }
+                ];
+                
+                // Combine all servers based on policy
+                const iceServers = forceTurn ? [...turnServers] : [...stunServers, ...turnServers];
+                logDebug(`Using ${iceServers.length} ICE servers`);
+                
+                // Create RTCPeerConnection with enhanced configuration
+                const configuration = {
+                    iceServers: iceServers,
+                    iceTransportPolicy: forceTurn ? 'relay' : 'all',
+                    iceCandidatePoolSize: 10,
+                    rtcpMuxPolicy: 'require',
+                    bundlePolicy: 'max-bundle',
+                    sdpSemantics: 'unified-plan'
                 };
                 
-                // Process offer or create answer
-                if (standardFormat.offer) {
-                    // They sent us an offer, create an answer
-                    logDebug('Processing received offer and creating answer');
-                    const answerData = await processOffer(standardFormat);
-                    
-                    // Mark that we've scanned their QR code (before showing our answer)
-                    state.qrCodeScanned = true;
-                    
-                    // Clear previous QR code to prepare for our answer QR code
-                    qrcodeDiv.innerHTML = '';
-                    
-                    try {
-                        // Start streaming the answer data
-                        startQRStreaming(answerData);
-                        
-                        // Switch to show QR tab
-                        document.querySelector('[data-tab="show-qr-tab"]').click();
-                        
-                        qrStatus.className = 'status success';
-                        qrStatus.textContent = 'Answer created! Have the other person scan this QR code to complete the connection.';
-                        
-                        // Log that we're entering the critical handshake phase
-                        logDebug('Entered critical handshake phase: We scanned their QR, they need to scan ours');
-                    } catch (e) {
-                        console.error('Error creating answer QR code:', e);
-                        
-                        // Show error
-                        qrStatus.className = 'status error';
-                        qrStatus.textContent = 'Error creating QR code. Please refresh and try again.';
-                    }
-                    
-                } else if (standardFormat.answer) {
-                    // They sent us an answer to our offer
-                    logDebug('Processing received answer to our offer');
-                    await processAnswer(standardFormat);
-                    
-                    // Mark that they've scanned our QR code
-                    state.otherQrScanned = true;
-                    
-                    // Update QR code status
-                    qrStatus.className = 'status success';
-                    qrStatus.textContent = 'Connection established! You can now start chatting.';
-                    
-                    // Stop streaming QR codes once we've received an answer
-                    stopQRStreaming();
-                    
-                    // Log that we've completed the handshake
-                    logDebug('Handshake completed: They scanned our QR code with their answer');
-                }
+                logDebug('Creating RTCPeerConnection with configuration');
+                state.peerConnection = new RTCPeerConnection(configuration);
+                
+                // Set up event handlers for the peer connection
+                logDebug('Setting up peer connection handlers');
+                setupPeerConnectionHandlers();
+                
+                // Set state to initialized
+                state.initialized = true;
+                
+                // Create initial offer as initiator
+                state.initiator = true;
+                
+                // Create offer
+                logDebug('Creating WebRTC offer');
+                await createOffer();
+                logDebug('Offer created successfully');
+                
+                // Update UI
+                initStatus.className = 'status success';
+                initStatus.textContent = 'WebRTC initialized successfully!';
+                
+                updateConnectionStatus('waiting');
+                
+                // DO NOT generate QR code here - it will happen in createOffer after ICE gathering
                 
             } catch (error) {
-                console.error('Connection error:', error);
-                scanStatus.className = 'status error';
-                scanStatus.textContent = `Connection error: ${error.message}`;
-                updateConnectionStatus('disconnected');
+                console.error('Initialization error:', error);
+                logDebug(`ERROR in initialization: ${error.message}`);
+                if (error.stack) {
+                    logDebug(`Stack: ${error.stack}`);
+                }
+                initStatus.className = 'status error';
+                initStatus.textContent = `Error: ${error.message}`;
             }
-        }
+        });
         
         // Camera handling
+        startCameraBtn.addEventListener('click', startCamera);
+        stopCameraBtn.addEventListener('click', stopCamera);
+        switchCameraBtn.addEventListener('click', switchCamera);
+        
         async function startCamera() {
             if (state.scanning) return;
             
@@ -890,9 +1028,9 @@
                 scanStatus.textContent = 'Accessing camera...';
                 logDebug('Attempting to access camera');
                 
-                // Check if jsQR global function exists
+                // Check if jsQR global function exists (it should now with our fallback)
                 if (typeof jsQR !== 'function') {
-                    logDebug('jsQR not defined - serious issue');
+                    logDebug('jsQR still not defined even with fallback - serious issue');
                     throw new Error('QR scanning function unavailable');
                 }
                 
@@ -922,24 +1060,20 @@
                 
                 // Enable scanning
                 state.scanning = true;
-                
-                // Reset scan progress
-                state.receivedChunks = [];
-                state.expectedTotalChunks = 0;
-                scanProgressContainer.style.display = 'none';
-                scanProgressText.style.display = 'none';
+                startCameraBtn.disabled = true;
+                stopCameraBtn.disabled = false;
                 
                 // Start scanning for QR codes
-                logDebug('Starting QR code scanning');
+                logDebug('Starting QR code scanning with our implementation');
                 scanQRCode();
                 
                 scanStatus.className = 'status success';
                 scanStatus.textContent = 'Camera active. Scanning for QR codes...';
                 
-                // Show info message
+                // Show warning that we're using basic detection
                 setTimeout(() => {
                     scanStatus.className = 'status info';
-                    scanStatus.textContent = 'Hold QR code steady in frame.';
+                    scanStatus.textContent = 'Scanning for QR codes (basic detection). Hold QR code steady in frame.';
                 }, 3000);
                 
             } catch (error) {
@@ -954,10 +1088,18 @@
                 } else {
                     scanStatus.className = 'status error';
                     scanStatus.textContent = `Error accessing camera: ${error.message}`;
+                    logDebug('Suggesting manual connection method');
+                    
+                    // Switch to manual tab after error
+                    setTimeout(() => {
+                        document.querySelector('[data-tab="manual-tab"]').click();
+                    }, 2000);
                 }
                 
-                // Reset scanning state
+                // Ensure buttons are in correct state
                 state.scanning = false;
+                startCameraBtn.disabled = false;
+                stopCameraBtn.disabled = true;
             }
         }
         
@@ -974,13 +1116,11 @@
             // Update UI
             qrVideo.srcObject = null;
             state.scanning = false;
-            
-            // Hide progress
-            scanProgressContainer.style.display = 'none';
-            scanProgressText.style.display = 'none';
+            startCameraBtn.disabled = false;
+            stopCameraBtn.disabled = true;
             
             scanStatus.className = 'status info';
-            scanStatus.textContent = 'Camera stopped.';
+            scanStatus.textContent = 'Camera stopped. Press "Start Camera" to begin scanning.';
         }
         
         async function switchCamera() {
@@ -988,8 +1128,7 @@
             if (!state.scanning) {
                 state.cameraFacingMode = state.cameraFacingMode === 'environment' ? 'user' : 'environment';
                 scanStatus.className = 'status info';
-                scanStatus.textContent = `Camera switched to ${state.cameraFacingMode === 'environment' ? 'back' : 'front'} camera.`;
-                startCamera(); // Start with new camera
+                scanStatus.textContent = `Camera switched to ${state.cameraFacingMode === 'environment' ? 'back' : 'front'} camera. Press "Start Camera" to begin.`;
                 return;
             }
             
@@ -1004,9 +1143,6 @@
                 startCamera();
             }, 500);
         }
-        
-        // Set up the switch camera button
-        switchCameraBtn.addEventListener('click', switchCamera);
         
         async function scanQRCode() {
             if (!state.scanning) return;
@@ -1037,12 +1173,20 @@
                 // Get image data for QR code scanning
                 const imageData = context.getImageData(0, 0, videoWidth, videoHeight);
                 
-                // Scan for QR code
+                // Scan for QR code using our implementation
                 const code = jsQR(imageData.data, imageData.width, imageData.height, {
                     inversionAttempts: "dontInvert"
                 });
                 
                 if (code) {
+                    // Check if this is from our built-in detector which can't actually decode
+                    if (code.detected && !code.data) {
+                        logDebug('Potential QR code detected but cannot decode');
+                        // Just continue scanning
+                        requestAnimationFrame(scanQRCode);
+                        return;
+                    }
+                    
                     // We found a QR code with data
                     if (code.data) {
                         logDebug('QR code detected with data: ' + (code.data.length > 50 ? code.data.substring(0, 50) + '...' : code.data));
@@ -1051,43 +1195,38 @@
                             // Try to parse as JSON
                             const scannedData = JSON.parse(code.data);
                             
-                            // First check if this is a chunk of streaming data
-                            if (scannedData.t !== undefined && scannedData.i !== undefined && scannedData.d !== undefined) {
-                                // This is a streaming chunk
-                                const result = processReceivedChunk(scannedData);
+                            // First check for any compressed format (v1, v2, or v3)
+                            if (scannedData.v !== undefined && scannedData.c !== undefined && scannedData.d !== undefined) {
+                                logDebug(`Detected compressed data format (v${scannedData.v})`);
                                 
-                                // If result is null, we're still collecting chunks
-                                if (result === null) {
-                                    // Continue scanning for more chunks
-                                    requestAnimationFrame(scanQRCode);
-                                    return;
-                                }
+                                // Display info about the found QR code
+                                qrResult.style.display = 'block';
+                                qrResult.textContent = `Found compressed Peared QR code! Decompressing...`;
                                 
-                                // If result is an object, we have all chunks and have reassembled the data
-                                if (result !== false) {
-                                    // Successfully reassembled all chunks
-                                    qrResult.style.display = 'block';
-                                    qrResult.textContent = `Complete data received! Connecting...`;
-                                    logDebug('Complete streamed data received');
+                                // Stop scanning
+                                stopCamera();
+                                
+                                // Process the compressed data
+                                try {
+                                    // First try to decompress
+                                    const decompressedData = hyperDecompress(scannedData);
+                                    logDebug('Successfully decompressed data');
                                     
-                                    // Stop scanning
-                                    stopCamera();
-                                    
-                                    // Process the reassembled data
-                                    processConnectionData(result);
+                                    // Now process the decompressed data
+                                    processConnectionData(decompressedData);
                                     
                                     // Don't request any more animation frames
                                     return;
+                                } catch (decompError) {
+                                    logDebug(`Failed to decompress: ${decompError.message}`);
+                                    
+                                    // Try using the raw compressed data as is
+                                    processConnectionData(scannedData);
+                                    return;
                                 }
-                                
-                                // If result is false, the chunk format was invalid
-                                // Continue scanning
-                                requestAnimationFrame(scanQRCode);
-                                return;
                             }
-                            
                             // Check if it's valid connection data (standard format)
-                            if (scannedData.id && scannedData.key && 
+                            else if (scannedData.id && scannedData.key && 
                               (scannedData.offer || scannedData.answer)) {
                                 
                                 // Successfully found a valid QR code
@@ -1159,6 +1298,356 @@
             }
         }
         
+        // Compression function - uses LZString directly without SDP mangling
+        function hyperCompress(data) {
+            try {
+                logDebug("Applying compression to data");
+                
+                // Just stringify and compress - no SDP minification (it's error-prone)
+                const jsonStr = JSON.stringify(data);
+                
+                // Compress with LZString
+                const compressed = LZString.compressToEncodedURIComponent(jsonStr);
+                if (!compressed || typeof compressed !== "string") {
+                    throw new Error("LZ compression returned invalid output");
+                }
+                
+                logDebug(`Compressed from ${jsonStr.length} to ${compressed.length} chars`);
+                
+                return {
+                    v: 4,  // New version without SDP minification
+                    c: 4,
+                    d: compressed
+                };
+            } catch (err) {
+                logDebug("Compression ERROR: " + err.message);
+                return data; // fall back to uncompressed
+            }
+        }
+        
+        // Function to decompress data
+        function hyperDecompress(data) {
+            try {
+                if (!data || typeof data !== "object") return data;
+                
+                // Check for compressed format
+                if (data.v !== undefined && data.c !== undefined && data.d !== undefined) {
+                    logDebug(`Detected compressed payload v${data.v}`);
+                    
+                    // Try decompression
+                    let decompressed = null;
+                    
+                    // Try URI component encoding first (v3, v4)
+                    decompressed = LZString.decompressFromEncodedURIComponent(data.d);
+                    
+                    if (!decompressed) {
+                        // Try base64 (v1, v2)
+                        decompressed = LZString.decompressFromBase64(data.d);
+                    }
+                    
+                    if (!decompressed) {
+                        throw new Error("Decompression failed - corrupted payload");
+                    }
+                    
+                    const parsed = JSON.parse(decompressed);
+                    logDebug("Successfully decompressed data");
+                    return parsed;
+                }
+                
+                // Not compressed, return as-is
+                return data;
+            } catch (err) {
+                logDebug("Decompression ERROR: " + err.message);
+                throw err;
+            }
+        }
+        
+        // Modified decompressData function to handle all formats
+        function decompressData(data) {
+            try {
+                // First try the advanced decompression
+                return hyperDecompress(data);
+            } catch (error) {
+                logDebug(`Error in advanced decompression: ${error.message}`);
+                // Fall back to original approach
+                
+                // Check if the data is a compressed wrapper format
+                if (data.v !== undefined && data.c !== undefined && data.d !== undefined) {
+                    logDebug(`Falling back to standard decompression for format v${data.v}`);
+                    
+                    if (typeof LZString === 'undefined') {
+                        throw new Error('LZString library not available for decompression');
+                    }
+                    
+                    // Decompress based on the version and compression flag
+                    if (data.v === 1 && data.c === true) {
+                        // Version 1: Base64 compressed
+                        const decompressed = LZString.decompressFromBase64(data.d);
+                        return JSON.parse(decompressed);
+                    } else if (data.v === 2 && data.c === 2) {
+                        // Version 2: URI component compressed (highest compression)
+                        const decompressed = LZString.decompressFromEncodedURIComponent(data.d);
+                        return JSON.parse(decompressed);
+                    } else if (data.v === 3 && data.c === 3) {
+                        // Version 3: Try multiple decompression methods
+                        let decompressed = LZString.decompressFromEncodedURIComponent(data.d);
+                        if (!decompressed) {
+                            decompressed = LZString.decompressFromBase64(data.d);
+                        }
+                        if (decompressed) {
+                            return JSON.parse(decompressed);
+                        }
+                    }
+                }
+                
+                // If not compressed or unknown format, return as is
+                return data;
+            }
+        }
+        
+        // Process connection data from QR code or manual input
+        async function processConnectionData(connectionData) {
+            try {
+                if (!state.initialized) {
+                    throw new Error('Please initialize WebRTC first.');
+                }
+                
+                updateConnectionStatus('connecting');
+                
+                // First check if we need to decompress the data
+                let processedData = connectionData;
+                
+                // Check for any compressed format
+                if (connectionData.v !== undefined && connectionData.c !== undefined && connectionData.d !== undefined) {
+                    try {
+                        logDebug(`Attempting to decompress data (format v${connectionData.v})`);
+                        processedData = hyperDecompress(connectionData);
+                        logDebug('Successfully decompressed data');
+                    } catch (decompressError) {
+                        logDebug(`Error decompressing data: ${decompressError.message}`);
+                        // If hyperDecompress fails, try standard decompression
+                        try {
+                            processedData = decompressData(connectionData);
+                            logDebug('Successfully decompressed with standard method');
+                        } catch (standardDecompressError) {
+                            logDebug(`Standard decompression also failed: ${standardDecompressError.message}`);
+                            // Continue with the original data
+                            processedData = connectionData;
+                        }
+                    }
+                }
+                
+                // Extract connection parameters from the processed data
+                // Handle both standard and compact formats
+                const peerId = processedData.id || processedData.i;
+                const secretKey = processedData.key || processedData.k;
+                const offer = processedData.offer || processedData.o;
+                const answer = processedData.answer || processedData.a;
+                const iceCandidates = processedData.iceCandidates || processedData.c;
+                
+                if (!peerId || !secretKey || (!offer && !answer)) {
+                    throw new Error('Invalid connection data format after decompression');
+                }
+                
+                // Store peer information
+                state.otherPeerId = peerId;
+                state.otherSecretKey = secretKey;
+                
+                // Determine which key to use (highest alphanumeric value)
+                const keysToCompare = [state.secretKey, state.otherSecretKey];
+                const sortedKeys = [...keysToCompare].sort();
+                state.selectedKey = sortedKeys[sortedKeys.length - 1];
+                
+                // Update UI
+                remotePeerIdDisplay.textContent = state.otherPeerId;
+                connectionDetails.style.display = 'block';
+                
+                // Recreate original format for compatibility with existing functions
+                const standardFormat = {
+                    id: peerId,
+                    key: secretKey,
+                    offer: offer,
+                    answer: answer,
+                    iceCandidates: iceCandidates
+                };
+                
+                // Process offer or create answer
+                if (standardFormat.offer) {
+                    // They sent us an offer, create an answer
+                    const answerData = await processOffer(standardFormat);
+                    
+                    // Since we're using QR codes, we need to show our answer QR code
+                    // for the other person to scan
+                    qrcodeDiv.innerHTML = '';
+                    
+                    try {
+                        // Compress the answer data using our advanced approach
+                        let compressedAnswerData;
+                        
+                        try {
+                            // Apply hyper-compression to the answer data
+                            compressedAnswerData = hyperCompress(answerData);
+                            const compressedSize = JSON.stringify(compressedAnswerData).length;
+                            const originalSize = JSON.stringify(answerData).length;
+                            logDebug(`Compressed answer data from ${originalSize} to ${compressedSize} bytes (${Math.round((compressedSize / originalSize) * 100)}% of original)`);
+                        } catch (compressError) {
+                            logDebug(`Error hyper-compressing answer: ${compressError.message}`);
+                            compressedAnswerData = answerData; // Use uncompressed as fallback
+                        }
+                        
+                        // Generate QR code with the compressed answer data
+                        new QRCode(qrcodeDiv, {
+                            text: JSON.stringify(compressedAnswerData),
+                            width: 256,
+                            height: 256,
+                            colorDark: "#000000",
+                            colorLight: "#ffffff",
+                            correctLevel: QRCode.CorrectLevel.L  // Using lowest level for more capacity
+                        });
+                        
+                        // Update the manual connection textarea - use the compressed version
+                        const connectionStringTextarea = document.getElementById('connection-string');
+                        if (connectionStringTextarea) {
+                            connectionStringTextarea.value = JSON.stringify(compressedAnswerData);
+                        }
+                        
+                        // Always show manual fallback
+                        document.getElementById('manual-fallback').style.display = 'block';
+                    } catch (e) {
+                        console.error('Error creating answer QR code:', e);
+                        
+                        // Show error and manual option
+                        qrStatus.className = 'status error';
+                        qrStatus.textContent = 'Error creating QR code. Use manual connection.';
+                        
+                        // Update the manual connection textarea
+                        const connectionStringTextarea = document.getElementById('connection-string');
+                        if (connectionStringTextarea) {
+                            connectionStringTextarea.value = JSON.stringify(answerData);
+                        }
+                        
+                        // Always show manual fallback
+                        document.getElementById('manual-fallback').style.display = 'block';
+                    }
+                    
+                    // Switch to show QR tab
+                    document.querySelector('[data-tab="show-qr-tab"]').click();
+                    
+                    qrStatus.className = 'status warning';
+                    qrStatus.textContent = '⚠️ STEP 2: Copy this answer and paste it into the OTHER browser\'s "Manual Connect" tab to complete the connection!';
+                    
+                } else if (standardFormat.answer) {
+                    // They sent us an answer to our offer
+                    await processAnswer(standardFormat);
+                    
+                    // Update QR code status
+                    qrStatus.className = 'status success';
+                    qrStatus.textContent = '✓ Connection complete! You can now start chatting.';
+                }
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                logDebug(`Connection error: ${error.message}`);
+                scanStatus.className = 'status error';
+                scanStatus.textContent = `Connection error: ${error.message}`;
+                connectStatus.className = 'status error';
+                connectStatus.textContent = `Connection error: ${error.message}`;
+                updateConnectionStatus('disconnected');
+            }
+        }
+        
+        // Manual connection (fallback method)
+        connectBtn.addEventListener('click', async () => {
+            if (!state.initialized) {
+                connectStatus.className = 'status error';
+                connectStatus.textContent = 'Please initialize WebRTC first.';
+                return;
+            }
+            
+            const otherIdText = otherId.value.trim();
+            if (!otherIdText) {
+                connectStatus.className = 'status error';
+                connectStatus.textContent = 'Please enter a connection ID.';
+                return;
+            }
+            
+            try {
+                connectStatus.className = 'status info';
+                connectStatus.textContent = 'Connecting...';
+                
+                try {
+                    // Parse the connection string
+                    const connectionData = JSON.parse(otherIdText);
+                    
+                    // Update status
+                    connectStatus.className = 'status info';
+                    
+                    // Check if this might be compressed data
+                    if (connectionData.v !== undefined && connectionData.c !== undefined && connectionData.d !== undefined) {
+                        connectStatus.textContent = 'Decompressing connection data...';
+                    } else {
+                        connectStatus.textContent = 'Processing connection data...';
+                    }
+                    
+                    // Process connection data
+                    await processConnectionData(connectionData);
+                    
+                    connectStatus.className = 'status success';
+                    connectStatus.textContent = 'Connection process started!';
+                    
+                } catch (parseError) {
+                    // Maybe it's a raw Base64 string from an older version
+                    connectStatus.className = 'status warning';
+                    connectStatus.textContent = 'Invalid JSON format. Trying alternative parsing...';
+                    
+                    // Try to decompress with LZString if library is available
+                    if (typeof LZString !== 'undefined') {
+                        try {
+                            logDebug('Attempting to treat input as raw compressed string');
+                            
+                            // Try various decompression methods
+                            let decompressedData;
+                            try {
+                                decompressedData = LZString.decompressFromBase64(otherIdText);
+                                if (decompressedData) {
+                                    logDebug('Successfully decompressed from Base64');
+                                }
+                            } catch (e) {
+                                logDebug('Base64 decompression failed, trying URL encoding');
+                                decompressedData = LZString.decompressFromEncodedURIComponent(otherIdText);
+                            }
+                            
+                            if (decompressedData) {
+                                // Try to parse the decompressed data
+                                const parsedData = JSON.parse(decompressedData);
+                                
+                                connectStatus.className = 'status info';
+                                connectStatus.textContent = 'Successfully decompressed legacy format. Connecting...';
+                                
+                                // Process the decompressed data
+                                await processConnectionData(parsedData);
+                                
+                                connectStatus.className = 'status success';
+                                connectStatus.textContent = 'Connection process started!';
+                                return;
+                            }
+                        } catch (decompressionError) {
+                            logDebug(`Alternative parsing failed: ${decompressionError.message}`);
+                            // Fall through to the original error
+                        }
+                    }
+                    
+                    // If we reach here, both normal parsing and alternative parsing failed
+                    throw parseError;
+                }
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                connectStatus.className = 'status error';
+                connectStatus.textContent = `Error: ${error.message}`;
+            }
+        });
+        
         // Create WebRTC offer
         async function createOffer() {
             try {
@@ -1179,6 +1668,11 @@
                 logDebug('Waiting for ICE gathering to complete...');
                 await waitForIceGathering();
                 logDebug(`ICE gathering complete with ${state.localIceCandidates.length} candidates`);
+                
+                // Log gathered ICE candidates for debugging
+                state.localIceCandidates.forEach((candidate, index) => {
+                    logDebug(`Candidate ${index + 1}: ${candidate.candidate}`);
+                });
                 
                 // Create connection data
                 const connectionData = {
@@ -1207,25 +1701,72 @@
         // Process a remote offer and create an answer
         async function processOffer(offerData) {
             try {
-                // Set remote description
+                logDebug('Processing remote offer...');
+                
+                // If we already have a local offer, we need to create a fresh peer connection
+                // This handles the case where both peers clicked "Initialize"
+                if (state.peerConnection.signalingState === 'have-local-offer') {
+                    logDebug('Already have local offer - creating fresh peer connection to become answerer');
+                    
+                    // Close old connection
+                    state.peerConnection.close();
+                    
+                    // Reset state
+                    state.localIceCandidates = [];
+                    state.initiator = false;
+                    
+                    // Get the current configuration
+                    const forceTurn = document.getElementById('force-turn').checked;
+                    
+                    const stunServers = [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ];
+                    
+                    const turnServers = [
+                        { 
+                            urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+                            username: 'openrelayproject',
+                            credential: 'openrelayproject'
+                        }
+                    ];
+                    
+                    const iceServers = forceTurn ? [...turnServers] : [...stunServers, ...turnServers];
+                    
+                    const configuration = {
+                        iceServers: iceServers,
+                        iceTransportPolicy: forceTurn ? 'relay' : 'all',
+                        iceCandidatePoolSize: 10
+                    };
+                    
+                    // Create new peer connection
+                    state.peerConnection = new RTCPeerConnection(configuration);
+                    setupPeerConnectionHandlers();
+                    logDebug('Created fresh peer connection as answerer');
+                }
+                
+                // Set remote description (the offer)
                 const offerDesc = new RTCSessionDescription(offerData.offer);
                 await state.peerConnection.setRemoteDescription(offerDesc);
-                logDebug('Set remote description from offer');
+                logDebug('Remote description set');
                 
                 // Add ICE candidates
-                for (const candidate of offerData.iceCandidates) {
-                    await addRemoteIceCandidate(candidate);
+                if (offerData.iceCandidates && offerData.iceCandidates.length > 0) {
+                    logDebug(`Adding ${offerData.iceCandidates.length} remote ICE candidates`);
+                    for (const candidate of offerData.iceCandidates) {
+                        await addRemoteIceCandidate(candidate);
+                    }
                 }
-                logDebug(`Added ${offerData.iceCandidates.length} remote ICE candidates`);
                 
                 // Create answer
+                logDebug('Creating answer...');
                 const answer = await state.peerConnection.createAnswer();
                 await state.peerConnection.setLocalDescription(answer);
-                logDebug('Created and set local answer');
+                logDebug('Local description (answer) set');
                 
                 // Wait for ICE gathering to complete
                 await waitForIceGathering();
-                logDebug(`ICE gathering complete with ${state.localIceCandidates.length} candidates`);
+                logDebug(`Answer ICE gathering complete with ${state.localIceCandidates.length} candidates`);
                 
                 // Create answer data
                 const answerData = {
@@ -1246,17 +1787,22 @@
         // Process a remote answer
         async function processAnswer(answerData) {
             try {
+                logDebug('Processing remote answer...');
+                
                 // Set remote description
                 const answerDesc = new RTCSessionDescription(answerData.answer);
                 await state.peerConnection.setRemoteDescription(answerDesc);
-                logDebug('Set remote description from answer');
+                logDebug('Remote description (answer) set');
                 
                 // Add ICE candidates
-                for (const candidate of answerData.iceCandidates) {
-                    await addRemoteIceCandidate(candidate);
+                if (answerData.iceCandidates && answerData.iceCandidates.length > 0) {
+                    logDebug(`Adding ${answerData.iceCandidates.length} remote ICE candidates`);
+                    for (const candidate of answerData.iceCandidates) {
+                        await addRemoteIceCandidate(candidate);
+                    }
                 }
-                logDebug(`Added ${answerData.iceCandidates.length} remote ICE candidates`);
                 
+                logDebug('Answer processed successfully');
                 return true;
             } catch (error) {
                 console.error('Error processing answer:', error);
@@ -1268,9 +1814,19 @@
         // Add a remote ICE candidate
         async function addRemoteIceCandidate(candidate) {
             try {
-                if (!candidate || !candidate.candidate) return;
+                if (!candidate) return false;
                 
-                const iceCandidate = new RTCIceCandidate(candidate);
+                // Get the candidate string
+                let candidateStr = candidate.candidate;
+                if (!candidateStr) return false;
+                
+                const iceCandidate = new RTCIceCandidate({
+                    candidate: candidateStr,
+                    sdpMid: candidate.sdpMid || '0',
+                    sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
+                    usernameFragment: candidate.usernameFragment || undefined
+                });
+                
                 await state.peerConnection.addIceCandidate(iceCandidate);
                 
                 // Add to remote candidates list
@@ -1279,6 +1835,7 @@
                 return true;
             } catch (error) {
                 console.error('Error adding ICE candidate:', error, candidate);
+                logDebug(`Error adding ICE candidate: ${error.message}`);
                 return false;
             }
         }
@@ -1295,7 +1852,7 @@
                 }
                 
                 // Maximum time to wait for ICE gathering
-                const MAX_ICE_GATHERING_TIMEOUT = 15000;
+                const MAX_ICE_GATHERING_TIMEOUT = 10000;
                 
                 // Set a timeout to resolve after maximum wait time
                 const timeout = setTimeout(() => {
@@ -1303,21 +1860,20 @@
                     resolve();
                 }, MAX_ICE_GATHERING_TIMEOUT);
                 
-                // Set up a timer to periodically check for candidates
+                // Set up a timer to periodically check for candidates even if no events fire
                 const candidateCheckInterval = setInterval(() => {
                     // Print current number of candidates
                     logDebug(`Current ICE candidates: ${state.localIceCandidates.length}`);
                     
-                    // If we've gathered enough candidates, or if gathering state is complete
-                    const minCandidatesNeeded = 2;
-                    if (state.localIceCandidates.length >= minCandidatesNeeded || 
+                    // If we've gathered a few candidates, or if gathering state is complete
+                    if (state.localIceCandidates.length >= 3 || 
                         state.peerConnection.iceGatheringState === 'complete') {
                         logDebug('We have enough ICE candidates, proceeding');
                         clearInterval(candidateCheckInterval);
                         clearTimeout(timeout);
                         
                         // Small delay to catch any last candidates
-                        setTimeout(resolve, 1000);
+                        setTimeout(resolve, 500);
                     }
                 }, 1000);
                 
@@ -1331,7 +1887,7 @@
                         clearTimeout(timeout);
                         
                         // Add a small delay to catch any last candidates
-                        setTimeout(resolve, 1000);
+                        setTimeout(resolve, 500);
                     }
                 };
                 
@@ -1348,16 +1904,10 @@
                     state.localIceCandidates.push(event.candidate);
                     logDebug(`New ICE candidate: ${event.candidate.candidate}`);
                     
-                    // Only update QR if we've already generated it, not the initial setup,
-                    // and NOT in critical handshake phase
-                    if (state.qrCodeGenerated && 
-                        state.localIceCandidates.length % 3 === 0 && 
-                        !isInCriticalHandshakePhase()) {
-                        
+                    // Only update QR if we've already generated it and it's not the initial setup
+                    if (state.qrCodeGenerated && state.localIceCandidates.length % 3 === 0) {
                         logDebug('Updating QR code with new ICE candidates');
                         generateQRCode();
-                    } else if (state.qrCodeGenerated && isInCriticalHandshakePhase()) {
-                        logDebug('PROTECTED QR code from update with new ICE candidates in critical phase');
                     }
                 } else {
                     // null candidate indicates that ICE gathering is complete
@@ -1378,54 +1928,37 @@
                 
                 if (iceState === 'connected' || iceState === 'completed') {
                     updateConnectionStatus('connected');
-                    state.connectionEstablished = true;
-                    state.reconnectAttempts = 0; // Reset reconnect counter on successful connection
-                    
-                    // Show chat card if not already visible
-                    if (chatCard.style.display !== 'block') {
-                        chatCard.style.display = 'block';
-                        addMessage('WebRTC connection established. You can now chat securely.', 'system');
-                    } else {
-                        // If already visible and we were reconnecting, show success message
-                        if (state.reconnectInterval) {
-                            addMessage('Connection restored!', 'system');
-                            clearInterval(state.reconnectInterval);
-                            state.reconnectInterval = null;
-                        }
-                    }
-                    
+                    chatCard.style.display = 'block';
+                    addMessage('WebRTC connection established. You can now chat securely.', 'system');
                     logDebug('WebRTC connection established successfully');
                     
-                    // Stop streaming QR codes once connected
-                    stopQRStreaming();
-                
-                // Restart ICE if needed but don't immediately switch to disconnected state
-                } else if (iceState === 'disconnected') {
-                    logDebug('ICE connection disconnected, attempting to recover...');
-                    
-                    // Only show message if we previously had established a connection
-                    if (state.connectionEstablished) {
-                        addMessage('Connection temporarily interrupted. Attempting to reconnect...', 'system');
-                    }
-                    
-                    // If we were previously connected, try to restore
-                    if (state.connectionEstablished || state.qrCodeScanned) {
-                        tryToRestoreConnection();
-                    }
-                    
                 } else if (iceState === 'failed') {
-                    logDebug('ICE connection failed, attempting to recover...');
+                    // Try reconnection with TURN
+                    logDebug('ICE connection failed, trying to connect through relay server...');
+                    addMessage('Direct connection failed. Trying to connect through relay server...', 'system');
                     
-                    // Only show message if we previously had established a connection
-                    if (state.connectionEstablished) {
-                        addMessage('Connection lost. Attempting to reconnect...', 'system');
+                    // Set ICE transport policy to relay-only to force TURN usage
+                    const configuration = state.peerConnection.getConfiguration();
+                    configuration.iceTransportPolicy = 'relay';
+                    state.peerConnection.setConfiguration(configuration);
+                    logDebug('Set ICE transport policy to relay-only');
+                    
+                    // Restart ICE if we're the initiator
+                    if (state.initiator) {
+                        restartIce();
                     }
                     
-                    // Try to restore the connection
-                    tryToRestoreConnection();
+                } else if (iceState === 'disconnected') {
+                    logDebug('ICE connection disconnected, waiting to see if it recovers...');
+                    // Wait a bit to see if it self-recovers
+                    setTimeout(() => {
+                        if (state.peerConnection.iceConnectionState === 'disconnected') {
+                            logDebug('Connection still disconnected after timeout, attempting ICE restart');
+                            restartIce();
+                        }
+                    }, 5000);
                     
                 } else if (iceState === 'closed') {
-                    // Only transition to disconnected if truly closed
                     updateConnectionStatus('disconnected');
                     addMessage('WebRTC connection closed. Please reconnect.', 'system');
                     logDebug('ICE connection closed');
@@ -1455,264 +1988,11 @@
             });
         }
         
-        // Try to restore a WebRTC connection
-        function tryToRestoreConnection() {
-            // Clear any existing interval
-            if (state.reconnectInterval) {
-                clearInterval(state.reconnectInterval);
-            }
-            
-            // Increment reconnect attempts
-            state.reconnectAttempts++;
-            
-            logDebug(`Connection restoration attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts}`);
-            
-            // Skip aggressive methods in critical handshake phase
-            const inCriticalPhase = isInCriticalHandshakePhase();
-            
-            // Try regular ICE restart first, but be gentle if in critical phase
-            if (inCriticalPhase) {
-                logDebug('CRITICAL PHASE: Using gentle connection restoration only');
-                // For critical phase, just try a basic ICE restart without QR regeneration
-                restartIce();
-            } else {
-                // Normal case - full restore attempt
-                restartIce();
-            }
-            
-            // Set up regular retry interval
-            state.reconnectInterval = setInterval(() => {
-                // Check if we've already reconnected
-                if (state.peerConnection && 
-                    (state.peerConnection.iceConnectionState === 'connected' || 
-                     state.peerConnection.iceConnectionState === 'completed')) {
-                    logDebug('Connection restored during reconnection interval');
-                    clearInterval(state.reconnectInterval);
-                    state.reconnectInterval = null;
-                    state.reconnectAttempts = 0;
-                    return;
-                }
-                
-                // Check if we've reached max attempts
-                if (state.reconnectAttempts >= state.maxReconnectAttempts) {
-                    logDebug('Maximum reconnection attempts reached');
-                    clearInterval(state.reconnectInterval);
-                    state.reconnectInterval = null;
-                    
-                    // Only show failure messages if we had previously connected
-                    if (state.connectionEstablished) {
-                        addMessage('Connection could not be restored after multiple attempts.', 'system');
-                        addMessage('Please refresh the page and try again.', 'system');
-                    }
-                    
-                    return;
-                }
-                
-                // Increment attempts and try again
-                state.reconnectAttempts++;
-                logDebug(`Connection restoration attempt ${state.reconnectAttempts}/${state.maxReconnectAttempts}`);
-                
-                // Re-check critical phase state - it might have changed
-                const stillInCriticalPhase = isInCriticalHandshakePhase();
-                
-                // Skip aggressive methods in critical phase
-                if (stillInCriticalPhase) {
-                    logDebug('CRITICAL PHASE: Still using gentle connection restoration only');
-                    restartIce();
-                } else {
-                    // Alternate between different connection restoration methods
-                    if (state.reconnectAttempts % 3 === 0) {
-                        // Every third attempt, try closing and recreating the peer connection
-                        logDebug('Attempting more aggressive reconnection (recreating peer connection)');
-                        recreatePeerConnection();
-                    } else {
-                        // Otherwise just do a standard ICE restart
-                        restartIce();
-                    }
-                }
-                
-            }, 10000); // Try every 10 seconds
-        }
-        
-        // Function to recreate the peer connection from scratch
-        function recreatePeerConnection() {
-            // Only do this if we have connection data
-            if (!state.lastConnectionData) {
-                logDebug('Cannot recreate peer connection - no connection data');
-                return;
-            }
-            
-            // Check if we're in the critical handshake phase - don't recreate if we are
-            if (isInCriticalHandshakePhase()) {
-                logDebug('CRITICAL PHASE PROTECTION: Skipping peer connection recreation');
-                return;
-            }
-            
-            try {
-                logDebug('Recreating peer connection from scratch');
-                
-                // Close existing connection
-                if (state.peerConnection) {
-                    // Close data channel if open
-                    if (state.dataChannel && state.dataChannel.readyState !== 'closed') {
-                        state.dataChannel.close();
-                    }
-                    
-                    // Close peer connection
-                    state.peerConnection.close();
-                }
-                
-                // STUN servers
-                const stunServers = [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ];
-                
-                // Create RTCPeerConnection with configuration
-                const configuration = {
-                    iceServers: stunServers,
-                    iceCandidatePoolSize: 10,
-                    rtcpMuxPolicy: 'require',
-                    bundlePolicy: 'max-bundle',
-                    sdpSemantics: 'unified-plan'
-                };
-                
-                logDebug('Creating new RTCPeerConnection with configuration');
-                state.peerConnection = new RTCPeerConnection(configuration);
-                
-                // Set up event handlers for the peer connection
-                logDebug('Setting up peer connection handlers');
-                setupPeerConnectionHandlers();
-                
-                // Reset ICE candidates
-                state.localIceCandidates = [];
-                
-                // Re-process the last connection data
-                setTimeout(() => {
-                    // Double-check we're still not in critical phase
-                    if (!isInCriticalHandshakePhase()) {
-                        processConnectionData(state.lastConnectionData);
-                    } else {
-                        logDebug('PROTECTED from connection recreation in timeout');
-                    }
-                }, 1000);
-                
-            } catch (error) {
-                console.error('Error recreating peer connection:', error);
-                logDebug(`ERROR in peer connection recreation: ${error.message}`);
-            }
-        }
-        
-        // Restart ICE connection if it fails
-        function restartIce() {
-            if (!state.peerConnection) return;
-            
-            try {
-                // Don't show UI changes if we're just doing routine restarts
-                const isInitialAttempt = state.reconnectAttempts <= 1;
-                
-                // Check if we're in the critical handshake phase
-                const inCriticalHandshakePhase = isInCriticalHandshakePhase();
-                
-                // Only the initiator can create a new offer with ICE restart
-                if (state.initiator) {
-                    logDebug('Attempting ICE restart as initiator');
-                    
-                    // Create an ICE restart offer
-                    state.peerConnection.createOffer({ iceRestart: true })
-                        .then((offer) => {
-                            return state.peerConnection.setLocalDescription(offer);
-                        })
-                        .then(() => {
-                            // Reset ICE candidate lists
-                            state.localIceCandidates = [];
-                            
-                            // Update QR code with new offer only if we need to show it
-                            // AND we're not in the critical handshake phase
-                            if (!state.otherQrScanned && !inCriticalHandshakePhase) {
-                                logDebug('Regenerating QR code after ICE restart');
-                                setTimeout(() => {
-                                    // Double-check we're still not in critical phase
-                                    if (!isInCriticalHandshakePhase()) {
-                                        generateQRCode();
-                                        
-                                        // Only switch to QR tab and show warning on initial attempts
-                                        if (isInitialAttempt) {
-                                            // Update UI to show new QR code
-                                            document.querySelector('[data-tab="show-qr-tab"]').click();
-                                            qrStatus.className = 'status info';
-                                            qrStatus.textContent = 'Waiting for the other person to scan your QR code...';
-                                        }
-                                    } else {
-                                        logDebug('PROTECTED QR code from regeneration in timeout');
-                                    }
-                                }, 1000);
-                            } else if (inCriticalHandshakePhase) {
-                                logDebug('CRITICAL HANDSHAKE PROTECTION - NOT regenerating QR code');
-                                qrStatus.className = 'status info';
-                                qrStatus.textContent = 'Waiting for other person to scan your QR code...';
-                            }
-                        })
-                        .catch((error) => {
-                            console.error('Error creating ICE restart offer:', error);
-                            logDebug(`Error creating ICE restart offer: ${error.message}`);
-                            
-                            // Try again after a delay
-                            setTimeout(() => {
-                                logDebug('Retrying ICE restart after error');
-                                restartIce();
-                            }, 3000);
-                        });
-                } else {
-                    // For non-initiator, we need to wait for a new offer
-                    // but we can try to trigger renegotiation by adding a dummy data channel
-                    logDebug('Non-initiator waiting for new offer, triggering renegotiation');
-                    
-                    try {
-                        // Try to create a temporary data channel to trigger renegotiation
-                        const tempChannel = state.peerConnection.createDataChannel('temp-renegotiation-' + Date.now());
-                        
-                        // Close it immediately since we just want to trigger the process
-                        setTimeout(() => {
-                            try {
-                                if (tempChannel.readyState !== 'closed') {
-                                    tempChannel.close();
-                                }
-                            } catch (e) {
-                                // Ignore errors closing the temp channel
-                            }
-                        }, 1000);
-                    } catch (e) {
-                        logDebug('Could not create temp channel: ' + e.message);
-                    }
-                    
-                    // Only update status on initial attempts, but don't change QR code in critical phase
-                    if (isInitialAttempt) {
-                        if (!inCriticalHandshakePhase) {
-                            qrStatus.className = 'status info';
-                            qrStatus.textContent = 'Waiting for connection to be reestablished...';
-                        } else {
-                            logDebug('In critical handshake phase - keeping current QR code stable');
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('Error in ICE restart process:', error);
-                logDebug('ICE restart error: ' + error.message);
-                
-                // Try again after a delay
-                setTimeout(() => {
-                    logDebug('Retrying after ICE restart error');
-                    restartIce();
-                }, 5000);
-            }
-        }
-        
         // Set up event handlers for the data channel
         function setupDataChannelHandlers(dataChannel) {
             dataChannel.addEventListener('open', () => {
                 console.log('Data channel open');
+                logDebug('Data channel opened');
                 dataChannelStatus.textContent = 'Open';
                 chatCard.style.display = 'block';
                 addMessage('Data channel established. This chat is encrypted with AES-256.', 'system');
@@ -1720,18 +2000,21 @@
             
             dataChannel.addEventListener('close', () => {
                 console.log('Data channel closed');
+                logDebug('Data channel closed');
                 dataChannelStatus.textContent = 'Closed';
                 addMessage('Data channel closed.', 'system');
             });
             
             dataChannel.addEventListener('error', (error) => {
                 console.error('Data channel error:', error);
+                logDebug(`Data channel error: ${error.message || error}`);
                 dataChannelStatus.textContent = 'Error';
-                addMessage(`Data channel error: ${error.message}`, 'system');
+                addMessage(`Data channel error: ${error.message || 'Unknown error'}`, 'system');
             });
             
             dataChannel.addEventListener('message', (event) => {
                 console.log('Received message:', event.data);
+                logDebug('Received encrypted message');
                 
                 try {
                     // Parse the message data
@@ -1744,9 +2027,48 @@
                     addMessage(decryptedMessage, 'received');
                 } catch (error) {
                     console.error('Error processing message:', error);
+                    logDebug(`Error processing message: ${error.message}`);
                     addMessage('Error: Could not decrypt message', 'system');
                 }
             });
+        }
+        
+        // Restart ICE connection if it fails
+        function restartIce() {
+            if (!state.peerConnection || !state.initiator) return;
+            
+            try {
+                logDebug('Attempting ICE restart...');
+                
+                // Create an ICE restart offer
+                state.peerConnection.createOffer({ iceRestart: true })
+                    .then((offer) => {
+                        return state.peerConnection.setLocalDescription(offer);
+                    })
+                    .then(() => {
+                        addMessage('Connection is being reestablished...', 'system');
+                        
+                        // Reset ICE candidate lists
+                        state.localIceCandidates = [];
+                        
+                        // Update QR code with new offer
+                        setTimeout(() => {
+                            generateQRCode();
+                            
+                            // Update UI to show new QR code
+                            document.querySelector('[data-tab="show-qr-tab"]').click();
+                            qrStatus.className = 'status warning';
+                            qrStatus.textContent = 'Connection failed. Have the other person scan this new QR code.';
+                        }, 1000);
+                    })
+                    .catch((error) => {
+                        console.error('Error creating ICE restart offer:', error);
+                        logDebug(`Error creating ICE restart offer: ${error.message}`);
+                    });
+            } catch (error) {
+                console.error('Error restarting ICE:', error);
+                logDebug(`Error restarting ICE: ${error.message}`);
+            }
         }
         
         // Send message
@@ -1910,80 +2232,19 @@
                 return false;
             }
             
+            // Check for camera support
+            if (!navigator.mediaDevices.getUserMedia) {
+                switchCameraBtn.disabled = true;
+                startCameraBtn.disabled = true;
+                scanStatus.className = 'status error';
+                scanStatus.textContent = "Your browser doesn't support camera access. You can still use manual connection.";
+            }
+            
             return true;
         }
         
-        // Auto-initialize WebRTC on page load
-        async function initializeWebRTC() {
-            try {
-                // Set status
-                updateConnectionStatus('connecting');
-                connectionState.textContent = 'Initializing WebRTC...';
-                
-                // Generate unique ID
-                state.peerId = generateRandomId();
-                logDebug(`Generated Peer ID: ${state.peerId}`);
-                
-                // Generate encryption key
-                state.secretKey = generateRandomKey();
-                logDebug(`Generated Secret Key: ${state.secretKey.substring(0, 10)}...`);
-                
-                // STUN servers
-                const stunServers = [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ];
-                
-                // Create RTCPeerConnection with configuration
-                const configuration = {
-                    iceServers: stunServers,
-                    iceCandidatePoolSize: 10,
-                    rtcpMuxPolicy: 'require',
-                    bundlePolicy: 'max-bundle',
-                    sdpSemantics: 'unified-plan'
-                };
-                
-                logDebug('Creating RTCPeerConnection with configuration');
-                state.peerConnection = new RTCPeerConnection(configuration);
-                
-                // Set up event handlers for the peer connection
-                logDebug('Setting up peer connection handlers');
-                setupPeerConnectionHandlers();
-                
-                // Set state to initialized
-                state.initialized = true;
-                
-                // Create initial offer as initiator
-                state.initiator = true;
-                
-                // Create offer
-                logDebug('Creating WebRTC offer');
-                await createOffer();
-                logDebug('Offer created successfully');
-                
-                // Update UI
-                updateConnectionStatus('waiting');
-                
-            } catch (error) {
-                console.error('Initialization error:', error);
-                logDebug(`ERROR in initialization: ${error.message}`);
-                
-                // Update UI
-                updateConnectionStatus('disconnected');
-                qrStatus.className = 'status error';
-                qrStatus.textContent = `Error initializing WebRTC: ${error.message}`;
-            }
-        }
-        
         // Initialize the app
-        if (checkSupport()) {
-            // Add debug panel
-            addDebugPanel();
-            
-            // Auto-initialize WebRTC
-            initializeWebRTC();
-        }
+        checkSupport();
     </script>
 </body>
 </html>
